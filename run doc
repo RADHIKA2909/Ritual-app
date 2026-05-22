@@ -1,0 +1,30 @@
+Backend (start Node — always run first):
+cd "/Users/radhikamaheshwari/Desktop/Learning 2026/Projects/DuoFit/backend"
+npm run dev
+
+──────────────────────────────────────────────
+
+Frontend — Option A: Laptop dev only (hot reload works):
+cd "/Users/radhikamaheshwari/Desktop/Learning 2026/Projects/DuoFit/app"
+flutter run -d chrome
+NOTE: make sure _host = 'localhost' in api_client.dart
+
+──────────────────────────────────────────────
+
+Frontend — Option B: Network build (laptop + mobile, no hot reload):
+Step 1 — change _host in api_client.dart to '192.168.29.252'
+Step 2 — build:
+  cd "/Users/radhikamaheshwari/Desktop/Learning 2026/Projects/DuoFit/app"
+  flutter build web --release
+Step 3 — serve:
+  cd "/Users/radhikamaheshwari/Desktop/Learning 2026/Projects/DuoFit/app/build/web"
+  python3 -m http.server 8080 --bind 0.0.0.0
+Step 4 — open in browser:
+  Mac:    http://localhost:8080
+  Mobile: http://192.168.29.252:8080
+
+──────────────────────────────────────────────
+
+Find Mac local IP (update if WiFi changes):
+ipconfig getifaddr en0
+Update: app/lib/core/network/api_client.dart → _host constant
