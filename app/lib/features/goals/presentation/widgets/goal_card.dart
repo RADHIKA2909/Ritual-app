@@ -49,29 +49,44 @@ class _GoalCardState extends ConsumerState<GoalCard> {
 
   /// Compute consecutive weekly streak and current week's duo ticks
   (int streak, int currentWeekTicks) _computeWeeklyStats(List<dynamic> checkIns) {
-    final completedCheckIns = checkIns.where((c) => c['completed'] == true).toList();
-    if (completedCheckIns.isEmpty) return (0, 0);
+    if (checkIns.isEmpty) return (0, 0);
 
-    final memberCount = widget.groupMembers.isNotEmpty ? widget.groupMembers.length : 1;
-    final Map<String, Set<String>> dayUserMap = {};
+    final members = widget.groupMembers;
 
-    for (final c in completedCheckIns) {
+    // weeklyUserTicks: weekStart -> userId -> count
+    final Map<DateTime, Map<String, int>> weeklyUserTicks = {};
+
+    for (var c in checkIns) {
+      if (c['completed'] != true) continue;
+      
       final d = DateTime.parse(c['date']).toLocal();
-      final key = '${d.year}-${d.month}-${d.day}';
-      dayUserMap.putIfAbsent(key, () => <String>{});
-      dayUserMap[key]!.add(c['userId'].toString());
+      final weekStart = DateTime(d.year, d.month, d.day).subtract(Duration(days: d.weekday - 1));
+      final userId = c['userId'].toString();
+
+      weeklyUserTicks.putIfAbsent(weekStart, () => {});
+      weeklyUserTicks[weekStart]!.update(userId, (v) => v + 1, ifAbsent: () => 1);
     }
 
     final Map<DateTime, int> weeklyDuoTicks = {};
-    
-    dayUserMap.forEach((dateString, users) {
-      if (users.length >= memberCount) {
-        final parts = dateString.split('-');
-        final d = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-        // subtract (weekday - 1) to get Monday
-        final weekStart = d.subtract(Duration(days: d.weekday - 1));
-        weeklyDuoTicks.update(weekStart, (v) => v + 1, ifAbsent: () => 1);
-      }
+
+    weeklyUserTicks.forEach((weekStart, userTicksMap) {
+       int groupTicks = 0;
+       if (members.isNotEmpty) {
+         int minTicks = 999;
+         for (var member in members) {
+           final memberId = member['_id'].toString();
+           final ticks = userTicksMap[memberId] ?? 0;
+           if (ticks < minTicks) minTicks = ticks;
+         }
+         groupTicks = minTicks == 999 ? 0 : minTicks;
+       } else {
+         int minTicks = 999;
+         for (var ticks in userTicksMap.values) {
+           if (ticks < minTicks) minTicks = ticks;
+         }
+         groupTicks = minTicks == 999 ? 0 : minTicks;
+       }
+       weeklyDuoTicks[weekStart] = groupTicks;
     });
 
     final today = DateTime.now();

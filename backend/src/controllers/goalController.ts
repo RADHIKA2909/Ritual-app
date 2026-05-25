@@ -177,27 +177,46 @@ export const getGroupStreak = async (req: AuthRequest, res: Response) => {
       return new Date(date.setDate(diff)).toISOString().split('T')[0];
     };
 
-    // Calculate duo ticks per goal per day
-    const dayGoalUserMap = new Map<string, Set<string>>(); // "goalId_YYYY-MM-DD" -> Set of userIds
+    // 1. Calculate ticks per user per week per goal
+    const goalWeekUserTicks = new Map<string, Map<string, Map<string, number>>>(); // goalId -> weekStart -> userId -> count
+    
     for (const c of checkIns) {
       const d = new Date(c.date);
-      const key = `${c.goalId}_${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
-      if (!dayGoalUserMap.has(key)) dayGoalUserMap.set(key, new Set());
-      dayGoalUserMap.get(key)!.add(c.userId.toString());
+      const weekStart = getWeekStart(d);
+      const goalId = c.goalId.toString();
+      const userId = c.userId.toString();
+      
+      if (!goalWeekUserTicks.has(goalId)) goalWeekUserTicks.set(goalId, new Map());
+      const weekMap = goalWeekUserTicks.get(goalId)!;
+      
+      if (!weekMap.has(weekStart)) weekMap.set(weekStart, new Map());
+      const userMap = weekMap.get(weekStart)!;
+      
+      userMap.set(userId, (userMap.get(userId) || 0) + 1);
     }
 
-    // Aggregate into weekly duo ticks per goal
-    const weeklyGoalTicks = new Map<string, Map<string, number>>(); // goalId -> { weekStart -> duoTicks }
-    for (const [key, users] of dayGoalUserMap.entries()) {
-      if (users.size >= memberCount) {
-        const [goalId, dateStr] = key.split('_');
-        const [y, m, d] = dateStr.split('-');
-        const date = new Date(Date.UTC(parseInt(y), parseInt(m), parseInt(d)));
-        const weekStart = getWeekStart(date);
-        
-        if (!weeklyGoalTicks.has(goalId)) weeklyGoalTicks.set(goalId, new Map());
-        const goalWeeks = weeklyGoalTicks.get(goalId)!;
-        goalWeeks.set(weekStart, (goalWeeks.get(weekStart) || 0) + 1);
+    // 2. Aggregate into weekly group ticks per goal (minimum across all members)
+    const weeklyGoalTicks = new Map<string, Map<string, number>>(); // goalId -> { weekStart -> groupTicks }
+    
+    for (const [goalId, weekMap] of goalWeekUserTicks.entries()) {
+      weeklyGoalTicks.set(goalId, new Map());
+      for (const [weekStart, userMap] of weekMap.entries()) {
+        let groupTicks = 0;
+        if (group && group.members.length > 0) {
+          let minTicks = Infinity;
+          for (const memberId of group.members) {
+            const ticks = userMap.get(memberId.toString()) || 0;
+            if (ticks < minTicks) minTicks = ticks;
+          }
+          groupTicks = minTicks === Infinity ? 0 : minTicks;
+        } else {
+          let minTicks = Infinity;
+          for (const ticks of userMap.values()) {
+            if (ticks < minTicks) minTicks = ticks;
+          }
+          groupTicks = minTicks === Infinity ? 0 : minTicks;
+        }
+        weeklyGoalTicks.get(goalId)!.set(weekStart, groupTicks);
       }
     }
 

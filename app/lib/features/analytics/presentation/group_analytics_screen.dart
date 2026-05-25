@@ -54,9 +54,9 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen> wit
     });
   }
 
-  /// Calculates how many "Duo Ticks" (days where all members checked in) happened for a specific goal in a date range
-  int _calculateDuoTicks(String goalId, DateTime start, DateTime end, List<dynamic> checkIns, int memberCount) {
-    final Map<String, Set<String>> dayUserMap = {};
+  /// Calculates how many "Duo Ticks" happened for a specific goal in a date range based on minimum user completions
+  int _calculateDuoTicks(String goalId, DateTime start, DateTime end, List<dynamic> checkIns, List<dynamic> members) {
+    final Map<String, int> userTicks = {};
     for (final c in checkIns) {
       if (c['goalId'] != goalId || c['completed'] != true) continue;
 
@@ -65,43 +65,77 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen> wit
       
       if (dayOnly.isBefore(start) || dayOnly.isAfter(end)) continue;
 
-      final key = '${d.year}-${d.month}-${d.day}';
-      dayUserMap.putIfAbsent(key, () => <String>{});
-      dayUserMap[key]!.add(c['userId'].toString());
+      final userId = c['userId'].toString();
+      userTicks.update(userId, (v) => v + 1, ifAbsent: () => 1);
     }
 
-    int duoTicks = 0;
-    dayUserMap.forEach((key, users) {
-      if (users.length >= memberCount) {
-        duoTicks++;
+    int groupTicks = 0;
+    if (members.isNotEmpty) {
+      int minTicks = 999;
+      for (var m in members) {
+        int t = userTicks[m.toString()] ?? 0;
+        if (t < minTicks) minTicks = t;
       }
-    });
+      groupTicks = minTicks == 999 ? 0 : minTicks;
+    } else {
+      int minTicks = 999;
+      for (var t in userTicks.values) {
+        if (t < minTicks) minTicks = t;
+      }
+      groupTicks = minTicks == 999 ? 0 : minTicks;
+    }
 
-    return duoTicks;
+    return groupTicks;
   }
 
-  int _computeGoalWeeklyStreak(Map<String, dynamic> goal, List<dynamic> checkIns, int memberCount) {
+  /// Calculates how many unique members checked in for a specific goal on a specific day
+  int _calculateUniqueMembersCompleted(String goalId, DateTime day, List<dynamic> checkIns) {
+    final Set<String> uniqueUsers = {};
+    for (final c in checkIns) {
+      if (c['goalId'] != goalId || c['completed'] != true) continue;
+      final d = DateTime.parse(c['date']).toLocal();
+      if (d.year == day.year && d.month == day.month && d.day == day.day) {
+        uniqueUsers.add(c['userId'].toString());
+      }
+    }
+    return uniqueUsers.length;
+  }
+
+  int _computeGoalWeeklyStreak(Map<String, dynamic> goal, List<dynamic> checkIns, List<dynamic> members) {
     final goalId = goal['_id'];
     final target = goal['weeklyMinimum'] ?? 0;
     final goalCheckIns = checkIns.where((c) => c['goalId'] == goalId && c['completed'] == true).toList();
     if (goalCheckIns.isEmpty) return 0;
 
-    final Map<String, Set<String>> dayUserMap = {};
+    final Map<DateTime, Map<String, int>> weeklyUserTicks = {};
+
     for (final c in goalCheckIns) {
       final d = DateTime.parse(c['date']).toLocal();
-      final key = '${d.year}-${d.month}-${d.day}';
-      dayUserMap.putIfAbsent(key, () => <String>{});
-      dayUserMap[key]!.add(c['userId'].toString());
+      final weekStart = DateTime(d.year, d.month, d.day).subtract(Duration(days: d.weekday - 1));
+      final userId = c['userId'].toString();
+
+      weeklyUserTicks.putIfAbsent(weekStart, () => {});
+      weeklyUserTicks[weekStart]!.update(userId, (v) => v + 1, ifAbsent: () => 1);
     }
 
     final Map<DateTime, int> weeklyDuoTicks = {};
-    dayUserMap.forEach((dateString, users) {
-      if (users.length >= memberCount) {
-        final parts = dateString.split('-');
-        final d = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-        final weekStart = d.subtract(Duration(days: d.weekday - 1));
-        weeklyDuoTicks.update(weekStart, (v) => v + 1, ifAbsent: () => 1);
+    weeklyUserTicks.forEach((weekStart, userMap) {
+      int groupTicks = 0;
+      if (members.isNotEmpty) {
+        int minTicks = 999;
+        for (var m in members) {
+          int t = userMap[m.toString()] ?? 0;
+          if (t < minTicks) minTicks = t;
+        }
+        groupTicks = minTicks == 999 ? 0 : minTicks;
+      } else {
+        int minTicks = 999;
+        for (var t in userMap.values) {
+          if (t < minTicks) minTicks = t;
+        }
+        groupTicks = minTicks == 999 ? 0 : minTicks;
       }
+      weeklyDuoTicks[weekStart] = groupTicks;
     });
 
     final today = DateTime.now();
@@ -159,7 +193,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen> wit
 
         for (final goal in goals) {
           final target = goal['weeklyMinimum'] ?? 0;
-          final achieved = _calculateDuoTicks(goal['_id'], start, end, checkIns, memberCount);
+          final achieved = _calculateDuoTicks(goal['_id'], start, end, checkIns, members);
           
           totalTarget += target as int;
           totalAchieved += achieved;
@@ -266,29 +300,42 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen> wit
 
     for (int day = 1; day <= lastDay; day++) {
       final d = DateTime(_selectedMonth.year, _selectedMonth.month, day);
-      final achieved = _calculateDuoTicks(selectedGoal['_id'], d, d, checkIns, memberCount);
+      final uniqueMembersCompleted = _calculateUniqueMembersCompleted(selectedGoal['_id'], d, checkIns);
+      final achieved = _calculateDuoTicks(selectedGoal['_id'], d, d, checkIns, members);
       
       if (achieved > 0) monthTotal++;
+      
+      Color boxColor;
+      final totalMembers = members.isNotEmpty ? members.length : 1;
+      
+      if (uniqueMembersCompleted == 0) {
+        boxColor = Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3);
+      } else if (uniqueMembersCompleted >= totalMembers) {
+        boxColor = const Color(0xFF6C63FF);
+      } else {
+        final double intensity = uniqueMembersCompleted / totalMembers;
+        boxColor = const Color(0xFF6C63FF).withOpacity(0.3 + (0.7 * intensity));
+      }
 
       dayBoxes.add(
         Container(
           decoration: BoxDecoration(
-            color: achieved > 0 ? const Color(0xFF6C63FF) : Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+            color: boxColor,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(color: Theme.of(context).colorScheme.surfaceVariant),
           ),
           child: Center(
             child: Text('$day', style: TextStyle(
-              color: achieved > 0 ? Colors.white : Theme.of(context).colorScheme.onSurface.withOpacity(0.54),
+              color: uniqueMembersCompleted > 0 ? Colors.white : Theme.of(context).colorScheme.onSurface.withOpacity(0.54),
               fontSize: 12,
-              fontWeight: achieved > 0 ? FontWeight.bold : FontWeight.normal,
+              fontWeight: uniqueMembersCompleted > 0 ? FontWeight.bold : FontWeight.normal,
             )),
           ),
         )
       );
     }
 
-    final currentStreak = _computeGoalWeeklyStreak(selectedGoal, checkIns, memberCount);
+    final currentStreak = _computeGoalWeeklyStreak(selectedGoal, checkIns, members);
 
     return Column(
       children: [
