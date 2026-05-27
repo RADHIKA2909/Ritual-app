@@ -3,6 +3,7 @@ import { AuthRequest } from '../middlewares/authMiddleware';
 import { Group } from '../models/Group';
 import { Goal } from '../models/Goal';
 import { CheckIn } from '../models/CheckIn';
+import { User } from '../models/User';
 import crypto from 'crypto';
 import { io } from '../index';
 
@@ -206,6 +207,56 @@ export const getGroupAnalytics = async (req: AuthRequest, res: Response) => {
     }).sort({ date: 1 }); // Sort chronologically
 
     res.status(200).json({ goals, checkIns, members: group.members });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @route GET /api/groups/:id/feed
+// @desc  Get recent activity feed for a group (last 50 completed check-ins with user + goal info)
+export const getGroupFeed = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const group = await Group.findById(id);
+    if (!group) return res.status(404).json({ message: 'Group not found' });
+
+    const goals = await Goal.find({ groupId: id });
+    const goalIds = goals.map((g) => g._id);
+
+    // Build lookup maps
+    const goalMap: Record<string, { name: string; icon: string }> = {};
+    for (const g of goals) {
+      goalMap[g._id.toString()] = { name: g.name, icon: g.icon };
+    }
+
+    const members = await User.find({ _id: { $in: group.members } }, 'name');
+    const userMap: Record<string, string> = {};
+    for (const u of members) {
+      userMap[u._id.toString()] = u.name;
+    }
+
+    const checkIns = await CheckIn.find({
+      goalId: { $in: goalIds },
+      completed: true,
+    })
+      .sort({ createdAt: -1 })
+      .limit(50);
+
+    const feed = checkIns.map((c) => ({
+      _id: c._id,
+      userId: c.userId,
+      userName: userMap[c.userId.toString()] ?? 'Unknown',
+      goalId: c.goalId,
+      goalName: goalMap[c.goalId.toString()]?.name ?? 'Goal',
+      goalIcon: goalMap[c.goalId.toString()]?.icon ?? '🎯',
+      date: c.date,
+      createdAt: c.createdAt,
+      note: c.note ?? '',
+      reactions: c.reactions ?? [],
+    }));
+
+    res.status(200).json(feed);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/network/api_client.dart';
 import '../../domain/goal_provider.dart';
-import '../../../groups/domain/group_provider.dart';
 
 const _presetEmojis = [
   '💪', '🏃', '📚', '🧘', '💧', '🍎', '🌙', '☕',
@@ -10,19 +8,41 @@ const _presetEmojis = [
   '🎵', '🌿', '❤️', '✨',
 ];
 
-class CreateGoalDialog extends ConsumerStatefulWidget {
+class EditGoalDialog extends ConsumerStatefulWidget {
+  final String goalId;
   final String groupId;
-  const CreateGoalDialog({super.key, required this.groupId});
+  final String initialName;
+  final String initialIcon;
+  final int initialWeeklyMinimum;
+
+  const EditGoalDialog({
+    super.key,
+    required this.goalId,
+    required this.groupId,
+    required this.initialName,
+    required this.initialIcon,
+    required this.initialWeeklyMinimum,
+  });
 
   @override
-  ConsumerState<CreateGoalDialog> createState() => _CreateGoalDialogState();
+  ConsumerState<EditGoalDialog> createState() => _EditGoalDialogState();
 }
 
-class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
-  final _nameController = TextEditingController();
-  String _selectedEmoji = '🎯';
-  double _weeklyMinimum = 3;
+class _EditGoalDialogState extends ConsumerState<EditGoalDialog> {
+  late final TextEditingController _nameController;
+  late String _selectedEmoji;
+  late double _weeklyMinimum;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.initialName);
+    _selectedEmoji = _presetEmojis.contains(widget.initialIcon)
+        ? widget.initialIcon
+        : '🎯';
+    _weeklyMinimum = widget.initialWeeklyMinimum.toDouble().clamp(1, 7);
+  }
 
   @override
   void dispose() {
@@ -35,19 +55,19 @@ class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
     if (name.isEmpty) return;
     setState(() => _isLoading = true);
     try {
-      await ApiClient.instance.post('/goals/group/${widget.groupId}', data: {
-        'name': name,
-        'icon': _selectedEmoji,
-        'weeklyMinimum': _weeklyMinimum.toInt(),
-      });
-      ref.read(goalsProvider.notifier).fetchGoals(widget.groupId);
-      ref.invalidate(groupProvider);
+      await ref.read(goalsProvider.notifier).editGoal(
+        widget.goalId,
+        widget.groupId,
+        name: name,
+        icon: _selectedEmoji,
+        weeklyMinimum: _weeklyMinimum.toInt(),
+      );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create goal: $e')),
+          SnackBar(content: Text('Failed to update goal: $e')),
         );
       }
     }
@@ -65,7 +85,7 @@ class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           // ── Title ───────────────────────────────────────────────────
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('New Goal',
+            const Text('Edit Goal',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
             GestureDetector(
               onTap: () => Navigator.pop(context),
@@ -104,9 +124,7 @@ class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
                           : cs.surface.withOpacity(0.5),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: isSelected
-                            ? cs.primary
-                            : Colors.transparent,
+                        color: isSelected ? cs.primary : Colors.transparent,
                         width: 2,
                       ),
                     ),
@@ -122,7 +140,6 @@ class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
           // ── Name field ──────────────────────────────────────────────
           TextField(
             controller: _nameController,
-            autofocus: false,
             decoration: InputDecoration(
               hintText: 'Goal name  e.g. Hit the gym',
               prefixIcon: Padding(
@@ -189,7 +206,7 @@ class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
                       width: 20, height: 20,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white))
-                  : const Text('Create Goal',
+                  : const Text('Save Changes',
                       style: TextStyle(
                           fontWeight: FontWeight.w700, fontSize: 15)),
             ),

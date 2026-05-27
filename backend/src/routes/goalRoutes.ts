@@ -1,5 +1,5 @@
 import express from 'express';
-import { createGoal, getGoals, toggleCheckIn, getCheckIns, deleteGoal, getGroupStreak } from '../controllers/goalController';
+import { createGoal, getGoals, editGoal, toggleCheckIn, getCheckIns, updateCheckInNote, reactToCheckIn, deleteGoal, getGroupStreak } from '../controllers/goalController';
 import { protect } from '../middlewares/authMiddleware';
 
 const router = express.Router();
@@ -15,6 +15,9 @@ router.get('/group/:groupId/streak', getGroupStreak);
 // Routes attached to /api/goals
 router.post('/:goalId/checkin', toggleCheckIn);
 router.get('/:goalId/checkins', getCheckIns);
+router.put('/:goalId/checkins/:checkInId/note', updateCheckInNote);
+router.post('/:goalId/checkins/:checkInId/react', reactToCheckIn);
+router.put('/:goalId', editGoal);
 router.delete('/:goalId', deleteGoal);
 
 export default router;

@@ -31,7 +31,10 @@ export const googleLogin = async (req: Request, res: Response) => {
       if (user) {
         // Link Google ID to existing account
         user.googleId = uid;
-        if (!user.profileImage && picture) user.profileImage = picture;
+        // Use Google photo; fall back to PNG DiceBear (SVG won't render in Flutter)
+        if (!user.profileImage || user.profileImage.includes('/svg')) {
+          user.profileImage = picture || `https://api.dicebear.com/7.x/avataaars/png?seed=${uid}`;
+        }
         await user.save();
       } else {
         // Brand new user
@@ -39,8 +42,14 @@ export const googleLogin = async (req: Request, res: Response) => {
           name: name || email.split('@')[0],
           email,
           googleId: uid,
-          profileImage: picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${uid}`,
+          profileImage: picture || `https://api.dicebear.com/7.x/avataaars/png?seed=${uid}`,
         });
+      }
+    } else {
+      // User already exists — update name & fix any SVG avatar from old code
+      if (user.profileImage?.includes('/svg')) {
+        user.profileImage = picture || `https://api.dicebear.com/7.x/avataaars/png?seed=${uid}`;
+        await user.save();
       }
     }
 
@@ -78,8 +87,13 @@ export const mockLogin = async (req: Request, res: Response) => {
       user = await User.create({
         name,
         email,
-        profileImage: `https://api.dicebear.com/7.x/avataaars/svg?seed=${name}`,
+        // PNG format — Flutter's NetworkImage cannot render SVG
+        profileImage: `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(name)}`,
       });
+    } else if (user.profileImage?.includes('/svg')) {
+      // Fix old SVG avatar for existing dev users
+      user.profileImage = `https://api.dicebear.com/7.x/avataaars/png?seed=${encodeURIComponent(name)}`;
+      await user.save();
     }
 
     const token = jwt.sign(

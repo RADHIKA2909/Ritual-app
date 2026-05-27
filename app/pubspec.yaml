@@ -18,6 +18,8 @@ dependencies:
   shared_preferences: ^2.5.5
   socket_io_client: ^3.1.4
   intl: ^0.20.2
+  file_picker: ^8.1.7
+  confetti: ^0.7.0
 
 dev_dependencies:
   flutter_test:
