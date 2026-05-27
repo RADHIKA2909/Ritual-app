@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -102,6 +103,27 @@ class AuthScreen extends ConsumerWidget {
                 isLoading: isLoading,
                 onTap: () => ref.read(authProvider.notifier).loginWithGoogle(),
               ),
+              const SizedBox(height: 16),
+
+              // ── Dev mock login (localhost only) ───────────────────────────
+              if (!kReleaseMode)
+                TextButton(
+                  onPressed: isLoading
+                      ? null
+                      : () => ref
+                          .read(authProvider.notifier)
+                          .mockLogin('Dev User', 'dev@ritual.local'),
+                  child: Text(
+                    'Dev Login (localhost only)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.4),
+                    ),
+                  ),
+                ),
               const SizedBox(height: 16),
 
               // ── Terms ─────────────────────────────────────────────────────
