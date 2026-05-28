@@ -454,28 +454,30 @@ class _HeroHeader extends StatelessWidget {
             child: Container(width: 80, height: 80,
               decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.04)))),
 
+          // Settings button — top-right of card
+          Positioned(
+            top: 0, right: 0,
+            child: GestureDetector(
+              onTap: onSettings,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.settings_outlined, size: 18, color: Colors.white.withOpacity(0.9)),
+              ),
+            ),
+          ),
+
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  // Settings button
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    Text(greeting,
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500,
-                            color: Colors.white.withOpacity(0.75))),
-                    GestureDetector(
-                      onTap: onSettings,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(Icons.settings_outlined, size: 18, color: Colors.white.withOpacity(0.9)),
-                      ),
-                    ),
-                  ]),
+                  Text(greeting,
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500,
+                          color: Colors.white.withOpacity(0.75))),
                   const SizedBox(height: 6),
                   Text(userName,
                       style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800,
@@ -739,8 +741,29 @@ class _WeekSummarySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('This Week',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text('This Week',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+          GestureDetector(
+            onTap: () => context.push('/my-analytics'),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: cs.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.bar_chart_rounded, size: 14, color: cs.primary),
+                const SizedBox(width: 5),
+                Text('My Analytics',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: cs.primary)),
+              ]),
+            ),
+          ),
+        ],
+      ),
       const SizedBox(height: 12),
       Row(children: [
         _StatCard(icon: '✅', value: '$totalThisWeek', label: 'Check-ins',

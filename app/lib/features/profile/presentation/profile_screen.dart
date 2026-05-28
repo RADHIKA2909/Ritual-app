@@ -24,6 +24,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _isSaving = false;
   bool _imageChanged = false;
   bool _nameChanged = false;
+  bool _imageLoadError = false;
 
   @override
   void initState() {
@@ -52,6 +53,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         _profileImage = data['profileImage'] as String?;
         _nameController.text = _currentName ?? '';
         _isLoading = false;
+        _imageLoadError = false;
       });
     } catch (_) {
       final prefs = await SharedPreferences.getInstance();
@@ -136,36 +138,65 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 
   Widget _buildAvatar(double radius) {
+    final name = _currentName ?? _nameController.text;
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+    final initialsChild = Text(
+      initial,
+      style: TextStyle(
+        fontSize: radius * 0.65,
+        fontWeight: FontWeight.w800,
+        color: Colors.white,
+      ),
+    );
+
+    // ── Base64 data-URI (user just picked a local image) ───────────────────
     if (_profileImage != null && _profileImage!.startsWith('data:')) {
       try {
-        final base64Str = _profileImage!.split(',').last;
-        final bytes = base64Decode(base64Str);
+        final bytes = base64Decode(_profileImage!.split(',').last);
         return CircleAvatar(
           radius: radius,
           backgroundImage: MemoryImage(bytes),
         );
-      } catch (_) {}
+      } catch (_) {
+        return CircleAvatar(
+          radius: radius,
+          backgroundColor: Colors.white.withOpacity(0.25),
+          child: initialsChild,
+        );
+      }
     }
-    if (_profileImage != null &&
-        _profileImage!.isNotEmpty &&
-        !_profileImage!.startsWith('data:')) {
+
+    // ── Network URL (DiceBear / Google photo) ──────────────────────────────
+    if (_profileImage != null && _profileImage!.isNotEmpty) {
+      final imgUrl = _profileImage!.contains('/svg')
+          ? _profileImage!.replaceAll('/svg', '/png')
+          : _profileImage!;
+
+      // foregroundImage renders over child (initials); on error the initials
+      // remain visible via setState(_imageLoadError = true).
+      if (_imageLoadError) {
+        return CircleAvatar(
+          radius: radius,
+          backgroundColor: Colors.white.withOpacity(0.25),
+          child: initialsChild,
+        );
+      }
       return CircleAvatar(
         radius: radius,
-        backgroundImage: NetworkImage(_profileImage!),
+        backgroundColor: Colors.white.withOpacity(0.25),
+        foregroundImage: NetworkImage(imgUrl),
+        onForegroundImageError: (_, __) {
+          if (mounted) setState(() => _imageLoadError = true);
+        },
+        child: initialsChild,
       );
     }
-    final name = _currentName ?? _nameController.text;
-    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
     return CircleAvatar(
       radius: radius,
       backgroundColor: Colors.white.withOpacity(0.25),
-      child: Text(
-        initial,
-        style: TextStyle(
-            fontSize: radius * 0.65,
-            fontWeight: FontWeight.w800,
-            color: Colors.white),
-      ),
+      child: initialsChild,
     );
   }
 
