@@ -1,5 +1,7 @@
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../domain/auth_provider.dart';
@@ -18,7 +20,7 @@ class AuthScreen extends ConsumerWidget {
         final err = next.error.toString();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(err), // Show actual error for debugging
+            content: Text(err),
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 8),
           ),
@@ -26,185 +28,376 @@ class AuthScreen extends ConsumerWidget {
       }
     });
 
-    final primary = Theme.of(context).colorScheme.primary;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isLoading = authState.isLoading;
 
     return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            children: [
-              const Spacer(flex: 2),
+      body: Stack(
+        children: [
+          // ── Animated gradient background ──────────────────────────
+          const _AnimatedBackground(),
 
-              // ── Glowing logo ─────────────────────────────────────────────
-              Center(
-                child: Container(
-                  width: 100,
-                  height: 100,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: [primary, primary.withOpacity(0.55)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: primary.withOpacity(0.45),
-                        blurRadius: 40,
-                        spreadRadius: 6,
+          // ── Content ───────────────────────────────────────────────
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                children: [
+                  const Spacer(flex: 2),
+
+                  // Logo
+                  _LogoWidget()
+                      .animate()
+                      .scale(
+                        begin: const Offset(0.3, 0.3),
+                        end: const Offset(1.0, 1.0),
+                        duration: 700.ms,
+                        curve: Curves.elasticOut,
+                      )
+                      .fadeIn(duration: 400.ms),
+
+                  const SizedBox(height: 40),
+
+                  // App name
+                  ShaderMask(
+                    shaderCallback: (bounds) => const LinearGradient(
+                      colors: [Color(0xFFB794F4), Color(0xFF9F7AEA), Color(0xFF7C3AED)],
+                    ).createShader(bounds),
+                    child: const Text(
+                      'Ritual',
+                      style: TextStyle(
+                        fontSize: 58,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -3,
+                        color: Colors.white,
                       ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.auto_awesome_rounded,
-                    size: 52,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 36),
+                    ),
+                  )
+                      .animate(delay: 200.ms)
+                      .fadeIn(duration: 600.ms)
+                      .slideY(begin: 0.3, end: 0, curve: Curves.easeOutCubic),
 
-              // ── App name ─────────────────────────────────────────────────
-              ShaderMask(
-                shaderCallback: (bounds) => LinearGradient(
-                  colors: [
-                    Theme.of(context).colorScheme.primary,
-                    Theme.of(context).colorScheme.secondary,
-                  ],
-                ).createShader(bounds),
-                child: const Text(
-                  'Ritual',
-                  style: TextStyle(
-                    fontSize: 52,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -2,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'Build habits that stick.\nTogether.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  height: 1.5,
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
-                ),
-              ),
+                  const SizedBox(height: 16),
 
-              const Spacer(flex: 2),
-
-              // ── Google Sign-In button ─────────────────────────────────────
-              _GoogleSignInButton(
-                isLoading: isLoading,
-                onTap: () => ref.read(authProvider.notifier).loginWithGoogle(),
-              ),
-              const SizedBox(height: 16),
-
-              // ── Dev mock login (localhost only) ───────────────────────────
-              if (!kReleaseMode)
-                TextButton(
-                  onPressed: isLoading
-                      ? null
-                      : () => ref
-                          .read(authProvider.notifier)
-                          .mockLogin('Dev User', 'dev@ritual.local'),
-                  child: Text(
-                    'Dev Login (localhost only)',
+                  Text(
+                    'Build habits that stick.\nTogether.',
+                    textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 18,
+                      height: 1.6,
+                      fontWeight: FontWeight.w500,
                       color: Theme.of(context)
                           .colorScheme
                           .onSurface
-                          .withOpacity(0.4),
+                          .withOpacity(0.55),
                     ),
-                  ),
-                ),
-              const SizedBox(height: 16),
+                  )
+                      .animate(delay: 400.ms)
+                      .fadeIn(duration: 500.ms)
+                      .slideY(begin: 0.2, end: 0, curve: Curves.easeOut),
 
-              // ── Terms ─────────────────────────────────────────────────────
-              Text(
-                'By continuing, you agree to our Terms of Service\nand Privacy Policy.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.5,
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.35),
-                ),
+                  const Spacer(flex: 2),
+
+                  // Google Sign-In
+                  _GoogleSignInButton(
+                    isLoading: isLoading,
+                    onTap: () => ref.read(authProvider.notifier).loginWithGoogle(),
+                  )
+                      .animate(delay: 600.ms)
+                      .fadeIn(duration: 500.ms)
+                      .slideY(begin: 0.4, end: 0, curve: Curves.easeOutCubic),
+
+                  const SizedBox(height: 16),
+
+                  // Dev login
+                  if (!kReleaseMode)
+                    TextButton(
+                      onPressed: isLoading
+                          ? null
+                          : () => ref
+                              .read(authProvider.notifier)
+                              .mockLogin('Dev User', 'dev@ritual.local'),
+                      child: Text(
+                        'Dev Login (localhost only)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withOpacity(0.35),
+                        ),
+                      ),
+                    )
+                        .animate(delay: 750.ms)
+                        .fadeIn(duration: 400.ms),
+
+                  const SizedBox(height: 12),
+
+                  // Terms
+                  Text(
+                    'By continuing, you agree to our Terms of Service\nand Privacy Policy.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.6,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.3),
+                    ),
+                  )
+                      .animate(delay: 800.ms)
+                      .fadeIn(duration: 400.ms),
+
+                  const SizedBox(height: 32),
+                ],
               ),
-              const SizedBox(height: 32),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 }
 
-class _GoogleSignInButton extends StatelessWidget {
+// ── Animated orb background ────────────────────────────────────────────────
+class _AnimatedBackground extends StatefulWidget {
+  const _AnimatedBackground();
+
+  @override
+  State<_AnimatedBackground> createState() => _AnimatedBackgroundState();
+}
+
+class _AnimatedBackgroundState extends State<_AnimatedBackground>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 8),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        return CustomPaint(
+          painter: _BackgroundPainter(_controller.value, isDark),
+          child: const SizedBox.expand(),
+        );
+      },
+    );
+  }
+}
+
+class _BackgroundPainter extends CustomPainter {
+  final double t;
+  final bool isDark;
+
+  const _BackgroundPainter(this.t, this.isDark);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bgColor = isDark ? const Color(0xFF0F0A1E) : const Color(0xFFFAF8FF);
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = bgColor,
+    );
+
+    // Floating orbs
+    final orbs = [
+      _OrbConfig(
+        color: const Color(0xFF7C3AED).withOpacity(isDark ? 0.25 : 0.12),
+        xFraction: 0.2,
+        yFraction: 0.15,
+        radius: 140,
+        speed: 1.0,
+      ),
+      _OrbConfig(
+        color: const Color(0xFF9F7AEA).withOpacity(isDark ? 0.2 : 0.1),
+        xFraction: 0.85,
+        yFraction: 0.2,
+        radius: 100,
+        speed: 1.4,
+      ),
+      _OrbConfig(
+        color: const Color(0xFF48BB78).withOpacity(isDark ? 0.15 : 0.08),
+        xFraction: 0.1,
+        yFraction: 0.75,
+        radius: 90,
+        speed: 0.7,
+      ),
+      _OrbConfig(
+        color: const Color(0xFF7C3AED).withOpacity(isDark ? 0.12 : 0.06),
+        xFraction: 0.9,
+        yFraction: 0.8,
+        radius: 120,
+        speed: 1.2,
+      ),
+    ];
+
+    for (final orb in orbs) {
+      final phase = t * orb.speed * 2 * math.pi;
+      final dx = math.sin(phase) * 20;
+      final dy = math.cos(phase * 0.7) * 15;
+
+      final paint = Paint()
+        ..color = orb.color
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 60);
+
+      canvas.drawCircle(
+        Offset(
+          size.width * orb.xFraction + dx,
+          size.height * orb.yFraction + dy,
+        ),
+        orb.radius,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BackgroundPainter old) => old.t != t || old.isDark != isDark;
+}
+
+class _OrbConfig {
+  final Color color;
+  final double xFraction;
+  final double yFraction;
+  final double radius;
+  final double speed;
+
+  const _OrbConfig({
+    required this.color,
+    required this.xFraction,
+    required this.yFraction,
+    required this.radius,
+    required this.speed,
+  });
+}
+
+// ── Logo ───────────────────────────────────────────────────────────────────
+class _LogoWidget extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 108,
+      height: 108,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const LinearGradient(
+          colors: [Color(0xFF9F7AEA), Color(0xFF6B46C1)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF7C3AED).withOpacity(0.45),
+            blurRadius: 48,
+            spreadRadius: 4,
+          ),
+        ],
+      ),
+      child: const Icon(
+        Icons.auto_awesome_rounded,
+        size: 54,
+        color: Colors.white,
+      ),
+    );
+  }
+}
+
+// ── Google Sign-In Button ──────────────────────────────────────────────────
+class _GoogleSignInButton extends StatefulWidget {
   final bool isLoading;
   final VoidCallback onTap;
 
   const _GoogleSignInButton({required this.isLoading, required this.onTap});
 
   @override
+  State<_GoogleSignInButton> createState() => _GoogleSignInButtonState();
+}
+
+class _GoogleSignInButtonState extends State<_GoogleSignInButton> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+
     return GestureDetector(
-      onTap: isLoading ? null : onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1B2E) : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.35),
-            width: 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) {
+        setState(() => _pressed = false);
+        if (!widget.isLoading) widget.onTap();
+      },
+      onTapCancel: () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 17, horizontal: 20),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1A1230) : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: cs.primary.withOpacity(_pressed ? 0.6 : 0.3),
+              width: 1.5,
             ),
-          ],
-        ),
-        child: isLoading
-            ? const Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2.5),
-                ),
-              )
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Google "G" logo drawn with text (no asset needed)
-                  const _GoogleLogo(),
-                  const SizedBox(width: 14),
-                  Text(
-                    'Continue with Google',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ],
+            boxShadow: [
+              BoxShadow(
+                color: cs.primary.withOpacity(_pressed ? 0.2 : 0.08),
+                blurRadius: _pressed ? 12 : 24,
+                offset: const Offset(0, 6),
               ),
+            ],
+          ),
+          child: widget.isLoading
+              ? Center(
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2.5, color: cs.primary),
+                  ),
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const _GoogleLogo(),
+                    const SizedBox(width: 14),
+                    Text(
+                      'Continue with Google',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurface,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }
 }
 
-/// Simple Google "G" rendered with a RichText — no external assets needed.
+/// Google "G" rendered with RichText — no external assets needed.
 class _GoogleLogo extends StatelessWidget {
   const _GoogleLogo();
 
