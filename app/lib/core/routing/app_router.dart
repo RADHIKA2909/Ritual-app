@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/auth_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
@@ -13,22 +14,49 @@ import '../../features/groups/presentation/group_leaderboard_screen.dart';
 import '../../features/goals/presentation/goal_history_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/groups/presentation/group_chat_screen.dart';
+import '../widgets/app_shell.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/auth',
   routes: [
+    // ── Auth (no shell) ───────────────────────────────────────────────
     GoRoute(
       path: '/auth',
       builder: (context, state) => const AuthScreen(),
     ),
-    GoRoute(
-      path: '/home',
-      builder: (context, state) => const HomeScreen(),
+
+    // ── Main shell with persistent bottom nav ────────────────────────
+    ShellRoute(
+      builder: (context, state, child) => AppShell(child: child),
+      routes: [
+        GoRoute(
+          path: '/home',
+          builder: (context, state) => const HomeScreen(),
+        ),
+        GoRoute(
+          path: '/dashboard',
+          builder: (context, state) => const DashboardScreen(),
+        ),
+        GoRoute(
+          path: '/todays-rituals',
+          builder: (context, state) => const TodaysRitualsScreen(),
+        ),
+        GoRoute(
+          path: '/profile',
+          builder: (context, state) => const ProfileScreen(),
+        ),
+        GoRoute(
+          path: '/select-group-analytics',
+          builder: (context, state) => const SelectGroupAnalyticsScreen(),
+        ),
+        GoRoute(
+          path: '/my-analytics',
+          builder: (context, state) => const MyAnalyticsScreen(),
+        ),
+      ],
     ),
-    GoRoute(
-      path: '/dashboard',
-      builder: (context, state) => const DashboardScreen(),
-    ),
+
+    // ── Deep screens (no shell / full-screen) ────────────────────────
     GoRoute(
       path: '/create-group',
       builder: (context, state) => const CreateGroupScreen(),
@@ -72,10 +100,6 @@ final appRouter = GoRouter(
       },
     ),
     GoRoute(
-      path: '/profile',
-      builder: (context, state) => const ProfileScreen(),
-    ),
-    GoRoute(
       path: '/goal/:goalId/history',
       builder: (context, state) {
         final extra = state.extra as Map<String, dynamic>;
@@ -86,18 +110,6 @@ final appRouter = GoRouter(
           groupMembers: extra['groupMembers'] as List<dynamic>,
         );
       },
-    ),
-    GoRoute(
-      path: '/select-group-analytics',
-      builder: (context, state) => const SelectGroupAnalyticsScreen(),
-    ),
-    GoRoute(
-      path: '/my-analytics',
-      builder: (context, state) => const MyAnalyticsScreen(),
-    ),
-    GoRoute(
-      path: '/todays-rituals',
-      builder: (context, state) => const TodaysRitualsScreen(),
     ),
   ],
 );
