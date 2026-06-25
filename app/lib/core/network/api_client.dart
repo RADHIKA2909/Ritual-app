@@ -4,15 +4,13 @@ import '../routing/app_router.dart';
 
 class ApiClient {
   // ── Network Config ──────────────────────────────────────────────────
-  // For local laptop browser:    use 'localhost'
-  // For mobile on same WiFi:     use your Mac's local IP (e.g. '192.168.1.45')
-  // Run `ipconfig getifaddr en0` in Terminal to find your Mac's IP
-  static const String _host = 'localhost';
-  static const int _port = 5001;
+  // Cloud backend on Replit
+  static const String _host = '8b937884-4c3b-45b4-9f96-9b0bacb4f8cb-00-39jp9x0ui1aa3.sisko.replit.dev';
+  static const int _port = 443;
   // ────────────────────────────────────────────────────────────────────
 
   static final Dio _dio = Dio(BaseOptions(
-    baseUrl: 'http://$_host:$_port/api',
+    baseUrl: 'https://$_host/api',
     connectTimeout: const Duration(seconds: 5),
     receiveTimeout: const Duration(seconds: 3),
   ));
