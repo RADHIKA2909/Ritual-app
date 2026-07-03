@@ -1,0 +1,24 @@
+app = "ritual-backend"
+primary_region = "iad"
+
+[build]
+builder = "heroku"
+
+[env]
+NODE_ENV = "production"
+
+[http_service]
+internal_port = 5000
+force_https = true
+auto_stop_machines = true
+auto_start_machines = true
+min_machines_running = 1
+
+[[services]]
+protocol = "tcp"
+internal_port = 5000
+
+[services.concurrency]
+type = "connections"
+hard_limit = 1000
+soft_limit = 800
