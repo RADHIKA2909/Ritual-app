@@ -11,10 +11,16 @@ import { io } from '../index';
 // @desc  Create a new group and add the user to it
 export const createGroup = async (req: AuthRequest, res: Response) => {
   try {
-    const { name } = req.body;
-    
+    let { name } = req.body;
+
     if (!name) {
       return res.status(400).json({ message: 'Group name is required' });
+    }
+
+    // Validate and sanitize input
+    name = name.trim();
+    if (name.length < 1 || name.length > 100) {
+      return res.status(400).json({ message: 'Group name must be 1-100 characters' });
     }
 
     // Generate a unique 6-character invite code
@@ -128,14 +134,14 @@ export const deleteGroup = async (req: AuthRequest, res: Response) => {
     }
 
     // Find all goals in this group
-    const goals = await Goal.find({ group: group._id });
+    const goals = await Goal.find({ groupId: group._id });
     const goalIds = goals.map(g => g._id);
 
     // Delete all check-ins for these goals
-    await CheckIn.deleteMany({ goal: { $in: goalIds } });
-    
+    await CheckIn.deleteMany({ goalId: { $in: goalIds } });
+
     // Delete all goals
-    await Goal.deleteMany({ group: group._id });
+    await Goal.deleteMany({ groupId: group._id });
 
     // Delete group
     await Group.findByIdAndDelete(group._id);

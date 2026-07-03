@@ -10,7 +10,19 @@ import { io } from '../index';
 export const createGoal = async (req: AuthRequest, res: Response) => {
   try {
     const { groupId } = req.params;
-    const { name, icon, weeklyMinimum } = req.body;
+    let { name, icon, weeklyMinimum } = req.body;
+
+    // Validate input
+    if (!name) {
+      return res.status(400).json({ message: 'Goal name is required' });
+    }
+    name = name.trim();
+    if (name.length < 1 || name.length > 100) {
+      return res.status(400).json({ message: 'Goal name must be 1-100 characters' });
+    }
+    if (weeklyMinimum && (weeklyMinimum < 1 || weeklyMinimum > 7)) {
+      return res.status(400).json({ message: 'Weekly minimum must be between 1 and 7' });
+    }
 
     const group = await Group.findById(groupId);
     if (!group) {

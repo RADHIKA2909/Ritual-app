@@ -4,13 +4,16 @@ import '../routing/app_router.dart';
 
 class ApiClient {
   // ── Network Config ──────────────────────────────────────────────────
-  // Cloud backend on Replit
-  static const String _host = '8b937884-4c3b-45b4-9f96-9b0bacb4f8cb-00-39jp9x0ui1aa3.sisko.replit.dev';
-  static const int _port = 443;
+  // Backend URL from environment (set via --dart-define during build)
+  // Usage: flutter build web --dart-define=BACKEND_URL=https://your-api.com
+  static const String _baseUrl = String.fromEnvironment(
+    'BACKEND_URL',
+    defaultValue: 'https://8b937884-4c3b-45b4-9f96-9b0bacb4f8cb-00-39jp9x0ui1aa3.sisko.replit.dev',
+  );
   // ────────────────────────────────────────────────────────────────────
 
   static final Dio _dio = Dio(BaseOptions(
-    baseUrl: 'https://$_host/api',
+    baseUrl: '$_baseUrl/api',
     connectTimeout: const Duration(seconds: 5),
     receiveTimeout: const Duration(seconds: 3),
   ));

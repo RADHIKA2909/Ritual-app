@@ -75,7 +75,13 @@ export const googleLogin = async (req: Request, res: Response) => {
 
 // ── Mock Login (kept for local dev without Firebase) ─────────────────────────
 // @route POST /api/auth/mock-login
+// @desc  Dev-only endpoint for testing (disabled in production)
 export const mockLogin = async (req: Request, res: Response) => {
+  // Gate: only allow in development
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(403).json({ message: 'Mock login is not available in production' });
+  }
+
   try {
     const { name, email } = req.body;
     if (!name || !email) {
