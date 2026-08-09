@@ -1,2 +1,17 @@
 # Claude Code local files
 .claude/
+
+# macOS
+.DS_Store
+
+# Build output
+backend/dist/
+
+# Firebase deploy cache
+.firebase/
+
+# Env / secrets — never commit these
+.env
+.env.local
+*.env
+!*.example.env
