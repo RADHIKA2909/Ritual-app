@@ -1,6 +1,4 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:flutter/foundation.dart';
-import 'dart:io' show Platform;
 
 class SocketService {
   static final SocketService _instance = SocketService._internal();
@@ -11,17 +9,18 @@ class SocketService {
   String? _activeUserId;
   String? _activeGroupId;
 
-  String get _baseUrl {
-    if (kIsWeb) return const String.fromEnvironment('API_URL', defaultValue: 'http://localhost:5001');
-    if (Platform.isAndroid) return 'http://10.0.2.2:5001';
-    return 'http://localhost:5001';
-  }
+  // Same backend as ApiClient — override at build time with
+  // flutter build web --dart-define=BACKEND_URL=https://your-api.com
+  static const String _baseUrl = String.fromEnvironment(
+    'BACKEND_URL',
+    defaultValue: 'https://ritual-backend.fly.dev',
+  );
 
   void initSocket() {
     if (_socket != null) return;
 
     _socket = IO.io(_baseUrl, IO.OptionBuilder()
-      .setTransports(['websocket']) // for Flutter or Web
+      .setTransports(['websocket'])
       .disableAutoConnect()  // disable auto-connection
       .build()
     );
