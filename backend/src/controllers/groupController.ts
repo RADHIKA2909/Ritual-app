@@ -4,7 +4,7 @@ import { Group } from '../models/Group';
 import { Goal } from '../models/Goal';
 import { CheckIn } from '../models/CheckIn';
 import { User } from '../models/User';
-import crypto from 'crypto';
+import { randomBytes } from 'crypto';
 import { io } from '../index';
 
 // @route POST /api/groups
@@ -24,7 +24,7 @@ export const createGroup = async (req: AuthRequest, res: Response) => {
     }
 
     // Generate a unique 6-character invite code
-    const inviteCode = crypto.randomBytes(3).toString('hex').toUpperCase();
+    const inviteCode = randomBytes(3).toString('hex').toUpperCase();
 
     const group = await Group.create({
       name,

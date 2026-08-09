@@ -12,11 +12,16 @@ const app = express();
 // Middleware — allow all origins + explicit methods/headers for preflight
 app.use(cors({
   origin: '*',
-  allowedHeaders: ['authorization', 'content-type'],
+  credentials: false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200,
 }));
 app.use(express.json());
+
+// NOTE: no explicit app.options() handler — the cors() middleware above already
+// terminates preflight requests (preflightContinue defaults to false). Express 5
+// also rejects a bare '*' route path; it would need '/*splat'.
 
 // Connect to MongoDB
 connectDB();
@@ -70,7 +75,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'DuoFit API is running' });
 });
 
-// Start Server — bind to 0.0.0.0 so mobile devices on same WiFi can connect
+// Start Server — bind to 0.0.0.0 so the host/platform can route traffic in
 const PORT = process.env.PORT || 5000;
 httpServer.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`Server running on port ${PORT} (accessible on local network)`);
