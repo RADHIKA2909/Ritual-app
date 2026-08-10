@@ -1,4 +1,5 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SocketService {
   static final SocketService _instance = SocketService._internal();
@@ -62,6 +63,20 @@ class SocketService {
     if (_socket?.connected == true) {
       _socket?.emit('join_user', userId);
     }
+  }
+
+  /// Connect and join this user's personal room.
+  ///
+  /// Called once at app start so personal events (`checkin_updated`,
+  /// `group_updated`, `new_group_message`) arrive no matter which screen the
+  /// user lands on. Previously only the Home screen joined the room, so
+  /// deep-linking straight to Rituals meant no real-time updates at all.
+  Future<void> bootstrap() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('user_id');
+    if (userId == null) return;
+    initSocket();
+    joinUserRoom(userId);
   }
 
   void on(String event, Function(dynamic) callback) {

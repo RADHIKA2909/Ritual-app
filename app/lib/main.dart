@@ -6,11 +6,15 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'core/routing/app_router.dart';
 import 'core/network/api_client.dart';
+import 'core/network/socket_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: FirebaseConfig.webOptions);
   ApiClient.initialize();
+  // Join the personal socket room up front so real-time updates work on
+  // whichever screen the user lands on, not just Home.
+  SocketService().bootstrap();
   runApp(
     const ProviderScope(
       child: RitualApp(),

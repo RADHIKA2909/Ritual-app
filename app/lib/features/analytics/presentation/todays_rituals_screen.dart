@@ -2,14 +2,50 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../domain/my_analytics_provider.dart';
+import '../../../core/network/socket_events.dart';
+import '../../../core/network/socket_service.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/status_style.dart';
+import '../../goals/presentation/widgets/check_in_button.dart';
+import '../../groups/domain/models/group_progress.dart';
+import '../../groups/presentation/widgets/group_status_widgets.dart';
+import '../../home/domain/my_progress_provider.dart';
 
-class TodaysRitualsScreen extends ConsumerWidget {
+class TodaysRitualsScreen extends ConsumerStatefulWidget {
   const TodaysRitualsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final analyticsState = ref.watch(myAnalyticsProvider);
+  ConsumerState<TodaysRitualsScreen> createState() => _TodaysRitualsScreenState();
+}
+
+class _TodaysRitualsScreenState extends ConsumerState<TodaysRitualsScreen> {
+  late final Function(dynamic) _checkinUpdatedHandler;
+
+  @override
+  void initState() {
+    super.initState();
+    // This screen previously had no socket listener at all, so a teammate
+    // checking in never showed up until something else happened to refresh
+    // the shared provider.
+    _checkinUpdatedHandler = (payload) {
+      if (!mounted) return;
+      final groupId = groupIdFromCheckinPayload(payload);
+      final notifier = ref.read(myProgressProvider.notifier);
+      groupId != null ? notifier.refreshGroup(groupId) : notifier.refreshSilently();
+    };
+    SocketService().initSocket();
+    SocketService().on(SocketEvents.checkinUpdated, _checkinUpdatedHandler);
+  }
+
+  @override
+  void dispose() {
+    SocketService().off(SocketEvents.checkinUpdated, _checkinUpdatedHandler);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progressState = ref.watch(myProgressProvider);
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -24,7 +60,7 @@ class TodaysRitualsScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Today's Rituals",
+                    "Today's Commitments",
                     style: TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.w900,
@@ -49,7 +85,7 @@ class TodaysRitualsScreen extends ConsumerWidget {
 
             // ── Body ────────────────────────────────────────────────────
             Expanded(
-              child: analyticsState.when(
+              child: progressState.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (err, _) => Center(
                   child: Column(
@@ -62,40 +98,33 @@ class TodaysRitualsScreen extends ConsumerWidget {
                       Text('Could not load rituals',
                           style: TextStyle(
                               color: cs.onSurface.withOpacity(0.4))),
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: () => ref.invalidate(myProgressProvider),
+                        child: const Text('Try again'),
+                      ),
                     ],
                   ),
                 ),
-                data: (data) {
-                  final goals = data['goals'] as List<dynamic>;
-                  final groups = data['groups'] as List<dynamic>;
-                  final checkIns = data['checkIns'] as List<dynamic>;
+                data: (groups) {
+                  final withGoals =
+                      groups.where((g) => g.goals.isNotEmpty).toList();
 
-                  if (goals.isEmpty) {
+                  if (withGoals.isEmpty) {
                     return _EmptyRitualsView();
                   }
 
-                  final now = DateTime.now();
-                  final pending = <dynamic>[];
-                  final completed = <dynamic>[];
-
-                  for (final goal in goals) {
-                    final isCompletedToday = checkIns.any((c) {
-                      if (c['goalId'] != goal['_id']) return false;
-                      final d = DateTime.parse(c['date']).toLocal();
-                      return d.year == now.year &&
-                          d.month == now.month &&
-                          d.day == now.day;
-                    });
-                    isCompletedToday ? completed.add(goal) : pending.add(goal);
-                  }
-
-                  final total = goals.length;
-                  final doneCount = completed.length;
+                  // Today's commitments across every group.
+                  final total =
+                      withGoals.fold<int>(0, (s, g) => s + g.goals.length);
+                  final doneCount = withGoals.fold<int>(
+                      0, (s, g) => s + g.goalsDoneByMeToday.length);
                   final allDone = doneCount == total && total > 0;
 
+                  var animIndex = 0;
+
                   return ListView(
-                    padding:
-                        const EdgeInsets.fromLTRB(20, 0, 20, 40),
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
                     children: [
                       // ── Progress hero card ─────────────────────────
                       _ProgressHeroCard(
@@ -110,66 +139,37 @@ class TodaysRitualsScreen extends ConsumerWidget {
 
                       const SizedBox(height: 24),
 
-                      // ── Pending ────────────────────────────────────
-                      if (pending.isNotEmpty) ...[
-                        _SectionLabel(
-                          label: 'To Complete',
-                          count: pending.length,
-                          color: cs.primary,
-                        ),
+                      // ── One section per group ──────────────────────
+                      // Grouping by group (rather than one flat list) is what
+                      // makes this read as "our commitments" instead of a
+                      // personal to-do list.
+                      for (final group in withGoals) ...[
+                        _GroupSectionHeader(group: group),
                         const SizedBox(height: 10),
-                        ...pending.asMap().entries.map((e) {
-                          final goal = e.value;
-                          final group = groups.firstWhere(
-                            (g) => g['_id'] == goal['groupId'],
-                            orElse: () =>
-                                {'name': 'Unknown Group', '_id': ''},
-                          );
-                          return _RitualCard(
-                            goal: goal,
-                            group: group,
-                            isDone: false,
-                            cs: cs,
-                          )
-                              .animate(delay: (e.key * 60).ms)
-                              .fadeIn(duration: 350.ms)
-                              .slideX(
-                                  begin: 0.06,
-                                  end: 0,
-                                  curve: Curves.easeOutCubic);
-                        }),
-                        const SizedBox(height: 20),
-                      ],
-
-                      // ── Completed ──────────────────────────────────
-                      if (completed.isNotEmpty) ...[
-                        _SectionLabel(
-                          label: 'Completed',
-                          count: completed.length,
-                          color: const Color(0xFF48BB78),
-                        ),
-                        const SizedBox(height: 10),
-                        ...completed.asMap().entries.map((e) {
-                          final goal = e.value;
-                          final group = groups.firstWhere(
-                            (g) => g['_id'] == goal['groupId'],
-                            orElse: () =>
-                                {'name': 'Unknown Group', '_id': ''},
-                          );
-                          return _RitualCard(
-                            goal: goal,
-                            group: group,
-                            isDone: true,
-                            cs: cs,
-                          )
-                              .animate(
-                                  delay: ((pending.length + e.key) * 60).ms)
-                              .fadeIn(duration: 350.ms)
-                              .slideX(
-                                  begin: 0.06,
-                                  end: 0,
-                                  curve: Curves.easeOutCubic);
-                        }),
+                        ...(() {
+                          // Pending first within each group, then done.
+                          final ordered = [
+                            ...group.goalsPendingForMeToday,
+                            ...group.goalsDoneByMeToday,
+                          ];
+                          return ordered.map((goal) {
+                            final delay = (animIndex++ * 60).ms;
+                            return _RitualCard(
+                              goal: goal,
+                              groupName: group.groupName,
+                              groupId: group.groupId,
+                              isSolo: group.isSolo,
+                              cs: cs,
+                            )
+                                .animate(delay: delay)
+                                .fadeIn(duration: 350.ms)
+                                .slideX(
+                                    begin: 0.06,
+                                    end: 0,
+                                    curve: Curves.easeOutCubic);
+                          });
+                        })(),
+                        const SizedBox(height: 22),
                       ],
 
                       // All done celebration
@@ -317,217 +317,185 @@ class _ProgressHeroCard extends StatelessWidget {
   }
 }
 
-// ── Section Label ──────────────────────────────────────────────────────────
-class _SectionLabel extends StatelessWidget {
-  final String label;
-  final int count;
-  final Color color;
-
-  const _SectionLabel({
-    required this.label,
-    required this.count,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(children: [
-      Text(
-        label.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.8,
-          color: color.withOpacity(0.7),
-        ),
-      ),
-      const SizedBox(width: 8),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          '$count',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-      ),
-    ]);
-  }
-}
 
 // ── Ritual Card ────────────────────────────────────────────────────────────
-class _RitualCard extends StatefulWidget {
-  final dynamic goal;
-  final dynamic group;
-  final bool isDone;
+/// One ritual, checkable in place.
+///
+/// The old card had a "Go →" pill that looked like an action but was pure
+/// decoration inside a card-wide tap target that just navigated to the group;
+/// completed cards had every handler nulled, so they weren't even tappable.
+/// Now the button checks in, and the text region navigates.
+class _RitualCard extends StatelessWidget {
+  final GroupGoalProgress goal;
+  final String groupName;
+  final String groupId;
+  final bool isSolo;
   final ColorScheme cs;
 
   const _RitualCard({
     required this.goal,
-    required this.group,
-    required this.isDone,
+    required this.groupName,
+    required this.groupId,
+    required this.isSolo,
     required this.cs,
   });
 
   @override
-  State<_RitualCard> createState() => _RitualCardState();
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDone = goal.currentUserCompletedToday;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDone
+            ? AppTheme.success.withOpacity(0.07)
+            : isDark
+                ? cs.surfaceVariant.withOpacity(0.5)
+                : cs.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDone
+              ? AppTheme.success.withOpacity(0.25)
+              : cs.onSurface.withOpacity(0.07),
+          width: 1.5,
+        ),
+        boxShadow: isDone
+            ? null
+            : [
+                BoxShadow(
+                  color: cs.onSurface.withOpacity(0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+      ),
+      child: Row(children: [
+        // Icon box
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: isDone
+                ? AppTheme.success.withOpacity(0.12)
+                : cs.primary.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Center(
+              child: Text(goal.icon, style: const TextStyle(fontSize: 22))),
+        ),
+        const SizedBox(width: 14),
+
+        // Text — tapping here opens the group. Keeping navigation off the
+        // button means the check-in hit target is unambiguous.
+        Expanded(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => context.push('/group/$groupId'),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    goal.goalName,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                      letterSpacing: -0.3,
+                      decoration: isDone ? TextDecoration.lineThrough : null,
+                      decorationColor: cs.onSurface.withOpacity(0.3),
+                      color: isDone
+                          ? cs.onSurface.withOpacity(0.4)
+                          : cs.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Row(children: [
+                    Icon(Icons.groups_rounded,
+                        size: 11,
+                        color: cs.onSurface.withOpacity(isDone ? 0.25 : 0.35)),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      // The group name is already the section header, so this
+                      // line carries what the GROUP still needs instead.
+                      child: Text(
+                        StatusStyle.goalHint(goal),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12,
+                            color:
+                                cs.onSurface.withOpacity(isDone ? 0.35 : 0.45),
+                            fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ]),
+                ]),
+          ),
+        ),
+
+        const SizedBox(width: 10),
+        CheckInButton(
+          goalId: goal.goalId,
+          groupId: groupId,
+          date: DateTime.now(),
+          isCompleted: isDone,
+        ),
+      ]),
+    );
+  }
 }
 
-class _RitualCardState extends State<_RitualCard> {
-  bool _pressed = false;
+/// Group heading above that group's rituals — name, streak, and how many of
+/// its rituals are done today.
+class _GroupSectionHeader extends StatelessWidget {
+  final GroupProgress group;
+
+  const _GroupSectionHeader({required this.group});
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cs = widget.cs;
-    final goalName = widget.goal['name'] as String;
-    final icon = widget.goal['icon'] as String? ?? '🎯';
-    final groupName = widget.group['name'] as String;
-    final groupId = widget.group['_id'] as String;
+    final cs = Theme.of(context).colorScheme;
+    final done = group.goalsDoneByMeToday.length;
 
-    return GestureDetector(
-      onTapDown: widget.isDone ? null : (_) => setState(() => _pressed = true),
-      onTapUp: widget.isDone
-          ? null
-          : (_) {
-              setState(() => _pressed = false);
-              context.push('/group/$groupId');
-            },
-      onTapCancel:
-          widget.isDone ? null : () => setState(() => _pressed = false),
-      child: AnimatedScale(
-        scale: _pressed ? 0.97 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        child: Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: widget.isDone
-                ? const Color(0xFF48BB78).withOpacity(0.07)
-                : isDark
-                    ? cs.surfaceVariant.withOpacity(0.5)
-                    : cs.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: widget.isDone
-                  ? const Color(0xFF48BB78).withOpacity(0.25)
-                  : cs.onSurface.withOpacity(0.07),
-              width: 1.5,
+    return Row(
+      children: [
+        Flexible(
+          child: Text(
+            group.groupName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+              color: cs.onSurface,
             ),
-            boxShadow: widget.isDone
-                ? null
-                : [
-                    BoxShadow(
-                      color: cs.onSurface.withOpacity(0.04),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
           ),
-          child: Row(children: [
-            // Icon box
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: widget.isDone
-                    ? const Color(0xFF48BB78).withOpacity(0.12)
-                    : cs.primary.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Center(
-                  child:
-                      Text(icon, style: const TextStyle(fontSize: 22))),
-            ),
-            const SizedBox(width: 14),
-
-            // Text
-            Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(
-                  goalName,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                    letterSpacing: -0.3,
-                    decoration:
-                        widget.isDone ? TextDecoration.lineThrough : null,
-                    decorationColor:
-                        cs.onSurface.withOpacity(0.3),
-                    color: widget.isDone
-                        ? cs.onSurface.withOpacity(0.4)
-                        : cs.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Row(children: [
-                  Icon(Icons.groups_rounded,
-                      size: 11,
-                      color: cs.onSurface.withOpacity(
-                          widget.isDone ? 0.25 : 0.35)),
-                  const SizedBox(width: 4),
-                  Text(
-                    groupName,
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: cs.onSurface.withOpacity(
-                            widget.isDone ? 0.3 : 0.45),
-                        fontWeight: FontWeight.w500),
-                  ),
-                ]),
-              ]),
-            ),
-
-            // Status button
-            if (widget.isDone)
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF48BB78).withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.check_rounded,
-                    size: 18, color: Color(0xFF48BB78)),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [cs.primary, cs.primary.withOpacity(0.8)],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: cs.primary.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: const Text(
-                  'Go →',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-          ]),
         ),
-      ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: done == group.goals.length
+                ? AppTheme.success.withOpacity(0.14)
+                : cs.onSurface.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '$done/${group.goals.length}',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: done == group.goals.length
+                  ? AppTheme.success
+                  : cs.onSurface.withOpacity(0.45),
+            ),
+          ),
+        ),
+        const Spacer(),
+        StreakPill(progress: group, compact: true),
+      ],
     );
   }
 }

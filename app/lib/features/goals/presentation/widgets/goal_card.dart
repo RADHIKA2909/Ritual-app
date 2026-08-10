@@ -4,6 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/goal_provider.dart';
+import '../../../../core/theme/app_theme.dart';
+import '../../../../core/theme/status_style.dart';
+import '../../../groups/domain/models/group_progress.dart';
+import '../../../groups/presentation/widgets/group_status_widgets.dart';
+import 'check_in_button.dart';
 import 'edit_goal_dialog.dart';
 
 class GoalCard extends ConsumerStatefulWidget {
@@ -15,6 +20,12 @@ class GoalCard extends ConsumerStatefulWidget {
   final bool isAdmin;
   final List<dynamic> groupMembers;
 
+  /// Server-derived progress for this goal — group score, per-member shares and
+  /// status. The card renders it; it never recomputes any of it.
+  final GroupGoalProgress progress;
+
+  final bool isSolo;
+
   const GoalCard({
     super.key,
     required this.goalId,
@@ -22,8 +33,10 @@ class GoalCard extends ConsumerStatefulWidget {
     required this.goalName,
     required this.icon,
     required this.weeklyMinimum,
+    required this.progress,
     this.isAdmin = false,
     this.groupMembers = const [],
+    this.isSolo = false,
   });
 
   @override
@@ -47,55 +60,17 @@ class _GoalCardState extends ConsumerState<GoalCard> {
     if (mounted) setState(() => currentUserId = prefs.getString('user_id'));
   }
 
-  (int streak, int currentWeekTicks) _computeWeeklyStats(List<dynamic> checkIns) {
-    if (checkIns.isEmpty) return (0, 0);
-    final members = widget.groupMembers;
-    final Map<DateTime, Map<String, int>> weeklyUserTicks = {};
-
-    for (var c in checkIns) {
-      if (c['completed'] != true) continue;
-      final d = DateTime.parse(c['date']).toLocal();
-      final weekStart = DateTime(d.year, d.month, d.day)
-          .subtract(Duration(days: d.weekday - 1));
-      final userId = c['userId'].toString();
-      weeklyUserTicks.putIfAbsent(weekStart, () => {});
-      weeklyUserTicks[weekStart]!.update(userId, (v) => v + 1, ifAbsent: () => 1);
-    }
-
-    final Map<DateTime, int> weeklyDuoTicks = {};
-    weeklyUserTicks.forEach((weekStart, userTicksMap) {
-      int minTicks = 999;
-      final check = members.isNotEmpty ? members : userTicksMap.keys.toList();
-      for (var member in check) {
-        final id = member is Map ? member['_id'].toString() : member.toString();
-        final t = userTicksMap[id] ?? 0;
-        if (t < minTicks) minTicks = t;
-      }
-      weeklyDuoTicks[weekStart] = minTicks == 999 ? 0 : minTicks;
-    });
-
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-    final currentWeekStart =
-        todayDate.subtract(Duration(days: todayDate.weekday - 1));
-    int streak = 0;
-    final currentWeekTicks = weeklyDuoTicks[currentWeekStart] ?? 0;
-    if (currentWeekTicks >= widget.weeklyMinimum) streak++;
-
-    for (int i = 1; i < 520; i++) {
-      final ws = currentWeekStart.subtract(Duration(days: i * 7));
-      if ((weeklyDuoTicks[ws] ?? 0) >= widget.weeklyMinimum) {
-        streak++;
-      } else {
-        break;
-      }
-    }
-    return (streak, currentWeekTicks);
-  }
+  // The weekly/streak maths that used to live here now comes from the server
+  // (see backend/src/services/progressService.ts) via widget.progress, so the
+  // client and the streak endpoint can no longer disagree.
 
   void _toggleMyDay(DateTime date) {
     HapticFeedback.lightImpact();
-    ref.read(checkInProvider.notifier).toggleCheckIn(widget.goalId, date);
+    // Explicit target rather than a blind flip, so a double tap converges.
+    final target = !ref
+        .read(checkInProvider.notifier)
+        .isCompletedOn(widget.goalId, currentUserId ?? '', date);
+    ref.read(checkInProvider.notifier).setCheckIn(widget.goalId, date, target);
   }
 
   Widget _buildDayDot(
@@ -422,28 +397,10 @@ class _GoalCardState extends ConsumerState<GoalCard> {
   Widget build(BuildContext context) {
     final checkInState = ref.watch(checkInProvider);
     final checkIns = (checkInState.value ?? {})[widget.goalId] ?? [];
-    final stats = _computeWeeklyStats(checkIns);
-    final streak = stats.$1;
-    final currentWeekTicks = stats.$2;
-    final target = widget.weeklyMinimum;
-    final progress = (currentWeekTicks / target).clamp(0.0, 1.0);
-    final isWeekMet = currentWeekTicks >= target;
+    final goal = widget.progress;
+    final status = StatusStyle.forGoal(goal);
+    final isWeekMet = goal.status == GoalStatus.completed;
     final cs = Theme.of(context).colorScheme;
-
-    final partnerMember = widget.groupMembers.firstWhere(
-      (m) => m is Map && m['_id']?.toString() != currentUserId,
-      orElse: () => null,
-    );
-    final partnerLabel = partnerMember != null
-        ? (partnerMember['name'] as String).split(' ').first
-        : 'Partner';
-    final allUserIds =
-        checkIns.map((c) => c['userId'] as String).toSet();
-    final partnerId = allUserIds.firstWhere(
-      (id) => id != currentUserId,
-      orElse: () => '',
-    );
-    final hasPartner = widget.groupMembers.length > 1;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -452,7 +409,7 @@ class _GoalCardState extends ConsumerState<GoalCard> {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
           color: isWeekMet
-              ? cs.primary.withOpacity(0.3)
+              ? AppTheme.success.withOpacity(0.4)
               : cs.onSurface.withOpacity(0.07),
           width: 1.5,
         ),
@@ -496,32 +453,23 @@ class _GoalCardState extends ConsumerState<GoalCard> {
                         fontWeight: FontWeight.w700,
                         letterSpacing: -0.3)),
                 const SizedBox(height: 6),
+                // Status chip. Note there is deliberately no streak here —
+                // the streak is a group-level moment and lives on the group
+                // header, not on every card.
                 Row(children: [
-                  if (streak > 0) ...[
-                    const Text('🔥', style: TextStyle(fontSize: 12)),
-                    const SizedBox(width: 3),
-                    Text('$streak wk',
-                        style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.orange)),
-                    const SizedBox(width: 8),
-                  ],
-                  Text('$currentWeekTicks/$target this week',
+                  Icon(status.icon, size: 13, color: status.color),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      status.label,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          fontSize: 11,
-                          color: cs.onSurface.withOpacity(0.45))),
-                ]),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 4,
-                    backgroundColor: cs.onSurface.withOpacity(0.08),
-                    color: isWeekMet ? const Color(0xFF48BB78) : cs.primary,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: status.color),
+                    ),
                   ),
-                ),
+                ]),
               ]),
             ),  // closes GestureDetector
             ),  // closes Expanded
@@ -590,22 +538,54 @@ class _GoalCardState extends ConsumerState<GoalCard> {
             ],
           ]),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
+
+          // ── Our progress vs mine ────────────────────────────────────
+          DualProgressBars(goal: goal, isSolo: widget.isSolo),
+
+          const SizedBox(height: 12),
+
+          // ── Today's action + what the group still needs ─────────────
+          Row(children: [
+            Expanded(
+              child: Text(
+                StatusStyle.goalHint(goal),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface.withOpacity(0.55),
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            CheckInButton(
+              goalId: widget.goalId,
+              groupId: widget.groupId,
+              date: DateTime.now(),
+              isCompleted: goal.currentUserCompletedToday,
+              size: CheckInButtonSize.compact,
+            ),
+          ]),
+
+          const SizedBox(height: 16),
           Container(height: 1, color: cs.onSurface.withOpacity(0.06)),
           const SizedBox(height: 16),
 
-          // ── Week trackers ───────────────────────────────────────────
-          _buildWeekRow(context, 'YOU', checkIns, true, currentUserId),
-          if (hasPartner) ...[
-            const SizedBox(height: 16),
-            _buildWeekRow(
-              context,
-              partnerLabel.toUpperCase(),
-              checkIns,
-              false,
-              partnerId.isEmpty ? null : partnerId,
-            ),
+          // ── Each member's week ──────────────────────────────────────
+          // One row per member, from the server's per-member breakdown.
+          // Previously this was hard-wired to two people, and resolved the
+          // partner's NAME from groupMembers while resolving their DOTS from
+          // the check-in rows — so in a group of 3+ the label and the data
+          // could describe different people.
+          if (!widget.isSolo) ...[
+            MemberContributionList(members: goal.memberProgress),
+            const SizedBox(height: 12),
           ],
+
+          // Your own week, with tappable days for back-filling.
+          _buildWeekRow(context, widget.isSolo ? 'THIS WEEK' : 'YOUR WEEK',
+              checkIns, true, currentUserId),
         ]),
       ),
     );

@@ -8,8 +8,14 @@ import 'package:confetti/confetti.dart';
 import 'package:shimmer/shimmer.dart';
 import '../../auth/domain/auth_provider.dart';
 import '../../../core/theme/theme_provider.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/status_style.dart';
 import '../../../core/network/socket_service.dart';
+import '../../../core/network/socket_events.dart';
 import '../../analytics/domain/my_analytics_provider.dart';
+import '../../goals/presentation/widgets/check_in_button.dart';
+import '../../groups/domain/models/group_progress.dart';
+import '../domain/my_progress_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -31,8 +37,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _confettiController = ConfettiController(duration: const Duration(seconds: 4));
-    _checkinUpdatedHandler = (_) {
-      if (mounted) ref.invalidate(myAnalyticsProvider);
+    _checkinUpdatedHandler = (payload) {
+      if (!mounted) return;
+      // The personal-room payload names the group, so a teammate's check-in
+      // only refreshes that group rather than every group the user is in.
+      final groupId = groupIdFromCheckinPayload(payload);
+      final notifier = ref.read(myProgressProvider.notifier);
+      groupId != null ? notifier.refreshGroup(groupId) : notifier.refreshSilently();
+      ref.invalidate(myAnalyticsProvider);
     };
     _loadUserNameAndSocket();
     _loadDismissState();
@@ -44,7 +56,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    SocketService().off('checkin_updated', _checkinUpdatedHandler);
+    SocketService().off(SocketEvents.checkinUpdated, _checkinUpdatedHandler);
     _confettiController.dispose();
     super.dispose();
   }
@@ -52,9 +64,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
+      // Catch up on anything missed while backgrounded / disconnected.
+      ref.read(myProgressProvider.notifier).refreshSilently();
       ref.invalidate(myAnalyticsProvider);
-      SocketService().off('checkin_updated', _checkinUpdatedHandler);
-      SocketService().on('checkin_updated', _checkinUpdatedHandler);
+      SocketService().off(SocketEvents.checkinUpdated, _checkinUpdatedHandler);
+      SocketService().on(SocketEvents.checkinUpdated, _checkinUpdatedHandler);
     }
   }
 
@@ -64,10 +78,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final userId = prefs.getString('user_id');
     if (mounted) setState(() => _userName = name.split(' ').first);
     if (userId != null) {
+      // main() already bootstraps this; harmless to re-assert after a login.
       SocketService().initSocket();
       SocketService().joinUserRoom(userId);
     }
-    SocketService().on('checkin_updated', _checkinUpdatedHandler);
+    SocketService().on(SocketEvents.checkinUpdated, _checkinUpdatedHandler);
   }
 
   Future<void> _loadDismissState() async {
@@ -102,15 +117,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _confettiController.play();
   }
 
-  bool _hasMissedYesterday(List<dynamic> goals, List<dynamic> checkIns) {
-    if (goals.isEmpty) return false;
-    final yesterday = DateTime.now().subtract(const Duration(days: 1));
-    final yDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
-    return !checkIns.any((c) {
-      final d = DateTime.parse(c['date']).toLocal();
-      return DateTime(d.year, d.month, d.day) == yDate;
-    });
-  }
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -186,7 +192,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final analyticsState = ref.watch(myAnalyticsProvider);
+    final progressState = ref.watch(myProgressProvider);
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -196,33 +202,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
-              // ── Gradient Hero Header ──────────────────────────────────
+              // ── Group hero ────────────────────────────────────────────
+              // The headline is OUR progress, not mine. One card per group,
+              // swipeable when the user belongs to several.
               SliverToBoxAdapter(
-                child: _HeroHeader(
+                child: _GroupHeroCarousel(
                   greeting: _greeting,
                   userName: _userName,
                   todayLabel: _todayLabel,
-                  analyticsState: analyticsState,
+                  progressState: progressState,
                   cs: cs,
                   isDark: isDark,
                   onSettings: () => _showSettings(context),
                 ),
               ),
 
-              // ── Missed Yesterday Nudge ────────────────────────────────
-              analyticsState.maybeWhen(
-                data: (data) {
-                  final goals = data['goals'] as List<dynamic>;
-                  final checkIns = data['checkIns'] as List<dynamic>;
-                  if (!_nudgeDismissed && _hasMissedYesterday(goals, checkIns)) {
-                    return SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                        child: _MissedYesterdayBanner(onDismiss: _dismissNudge, cs: cs),
-                      ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.3, end: 0),
-                    );
+              // ── Streak at risk ────────────────────────────────────────
+              progressState.maybeWhen(
+                data: (groups) {
+                  final atRisk = groups
+                      .where((g) => g.streakStatus == StreakStatus.atRisk)
+                      .toList();
+                  if (_nudgeDismissed || atRisk.isEmpty) {
+                    return const SliverToBoxAdapter(child: SizedBox.shrink());
                   }
-                  return const SliverToBoxAdapter(child: SizedBox.shrink());
+                  return SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                      child: _StreakAtRiskBanner(
+                        group: atRisk.first,
+                        onDismiss: _dismissNudge,
+                        cs: cs,
+                      ),
+                    ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.3, end: 0),
+                  );
                 },
                 orElse: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
               ),
@@ -255,7 +268,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
 
               // ── Rituals list / empty state ────────────────────────────
-              analyticsState.when(
+              progressState.when(
                 loading: () => SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
@@ -263,30 +276,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   ),
                 ),
                 error: (_, __) => const SliverToBoxAdapter(child: SizedBox(height: 16)),
-                data: (data) {
-                  final goals = data['goals'] as List<dynamic>;
-                  final groups = data['groups'] as List<dynamic>;
-                  final checkIns = data['checkIns'] as List<dynamic>;
-                  final now = DateTime.now();
-                  final pending = <dynamic>[];
-                  final done = <dynamic>[];
-
-                  for (final g in goals) {
-                    final completed = checkIns.any((c) {
-                      if (c['goalId'] != g['_id']) return false;
-                      final d = DateTime.parse(c['date']).toLocal();
-                      return d.year == now.year && d.month == now.month && d.day == now.day;
-                    });
-                    completed ? done.add(g) : pending.add(g);
+                data: (groups) {
+                  // Flatten today's rituals across groups; pending first.
+                  final pending = <(GroupProgress, GroupGoalProgress)>[];
+                  final done = <(GroupProgress, GroupGoalProgress)>[];
+                  for (final group in groups) {
+                    for (final goal in group.goals) {
+                      (goal.currentUserCompletedToday ? done : pending)
+                          .add((group, goal));
+                    }
                   }
 
-                  final doneCount = done.length;
-                  final total = goals.length;
-                  if (doneCount == total && total > 0 && !_confettiPlayed) {
+                  final total = pending.length + done.length;
+                  if (done.length == total && total > 0 && !_confettiPlayed) {
                     WidgetsBinding.instance.addPostFrameCallback((_) => _playConfettiOnce());
                   }
 
-                  if (goals.isEmpty) {
+                  if (total == 0) {
                     return SliverToBoxAdapter(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
@@ -295,26 +301,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     );
                   }
 
-                  final all = [...pending, ...done];
-                  final preview = all.take(4).toList();
+                  final preview = [...pending, ...done].take(4).toList();
 
                   return SliverPadding(
                     padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (ctx, i) {
-                          final goal = preview[i];
-                          final isCompleted = done.contains(goal);
-                          final group = groups.firstWhere(
-                            (g) => g['_id'] == goal['groupId'],
-                            orElse: () => {'name': '', '_id': ''},
-                          );
+                          final (group, goal) = preview[i];
                           return _RitualTile(
                             index: i,
                             goal: goal,
-                            group: group,
-                            isCompleted: isCompleted,
-                            onGo: () => context.push('/group/${group['_id']}'),
+                            groupName: group.groupName,
+                            groupId: group.groupId,
+                            isSolo: group.isSolo,
                           );
                         },
                         childCount: preview.length,
@@ -325,30 +325,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
 
               // ── This Week ─────────────────────────────────────────────
-              analyticsState.maybeWhen(
-                data: (data) {
-                  final goals = data['goals'] as List<dynamic>;
-                  final checkIns = data['checkIns'] as List<dynamic>;
-                  if (goals.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
-
-                  final now = DateTime.now();
-                  final monday = DateTime(now.year, now.month, now.day)
-                      .subtract(Duration(days: now.weekday - 1));
-                  final sunday = monday.add(const Duration(days: 6));
-
-                  int totalThisWeek = 0;
-                  int goalsMet = 0;
-                  for (final g in goals) {
-                    final gId = g['_id'];
-                    final weekCount = checkIns.where((c) {
-                      if (c['goalId'] != gId) return false;
-                      final d = DateTime.parse(c['date']).toLocal();
-                      final day = DateTime(d.year, d.month, d.day);
-                      return !day.isBefore(monday) && !day.isAfter(sunday);
-                    }).length;
-                    totalThisWeek += weekCount;
-                    if (weekCount >= (g['weeklyMinimum'] as num? ?? 3)) goalsMet++;
+              progressState.maybeWhen(
+                data: (groups) {
+                  final allGoals = [for (final g in groups) ...g.goals];
+                  if (allGoals.isEmpty) {
+                    return const SliverToBoxAdapter(child: SizedBox.shrink());
                   }
+
+                  // Server-derived: my own check-ins this week, and how many
+                  // rituals the GROUP has already met.
+                  final totalThisWeek = allGoals.fold<int>(
+                      0, (s, g) => s + g.currentUserCount);
+                  final goalsMet = allGoals
+                      .where((g) => g.status == GoalStatus.completed)
+                      .length;
 
                   return SliverToBoxAdapter(
                     child: Padding(
@@ -356,8 +346,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       child: _WeekSummarySection(
                         totalThisWeek: totalThisWeek,
                         goalsMet: goalsMet,
-                        totalGoals: goals.length,
-                        weekday: now.weekday,
+                        totalGoals: allGoals.length,
+                        weekday: DateTime.now().weekday,
                         cs: cs,
                       ),
                     ).animate().fadeIn(delay: 500.ms).slideY(begin: 0.15, end: 0),
@@ -390,55 +380,288 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
 // ── Hero Header ──────────────────────────────────────────────────────────────
 
-class _HeroHeader extends StatelessWidget {
+/// The group hero — "OUR progress", one card per group.
+///
+/// Replaces the old personal hero that showed "N of M today" across every
+/// group at once. With several groups this is a swipeable PageView; with one
+/// it renders a single static card and no page dots.
+class _GroupHeroCarousel extends StatefulWidget {
   final String greeting;
   final String userName;
   final String todayLabel;
-  final AsyncValue<Map<String, dynamic>> analyticsState;
+  final AsyncValue<List<GroupProgress>> progressState;
   final ColorScheme cs;
   final bool isDark;
   final VoidCallback onSettings;
 
-  const _HeroHeader({
+  const _GroupHeroCarousel({
     required this.greeting,
     required this.userName,
     required this.todayLabel,
-    required this.analyticsState,
+    required this.progressState,
     required this.cs,
     required this.isDark,
     required this.onSettings,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final stateData = analyticsState.value;
-    final doneCount = stateData?['goals'] != null
-        ? _computeDone(
-            stateData!['goals'] as List<dynamic>,
-            stateData['checkIns'] as List<dynamic>,
-          )
-        : null;
-    final total = (stateData?['goals'] as List<dynamic>?)?.length ?? 0;
-    final progress = total == 0 ? 0.0 : (doneCount ?? 0) / total;
-    final allDone = total > 0 && (doneCount ?? 0) == total;
+  State<_GroupHeroCarousel> createState() => _GroupHeroCarouselState();
+}
 
+class _GroupHeroCarouselState extends State<_GroupHeroCarousel> {
+  final PageController _controller = PageController(viewportFraction: 0.995);
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = widget.progressState.value ?? const <GroupProgress>[];
+
+    // No groups yet (or still loading) — keep the greeting card so the screen
+    // never renders empty.
+    if (groups.isEmpty) {
+      return _HeroShell(
+        cs: widget.cs,
+        isDark: widget.isDark,
+        allDone: false,
+        onSettings: widget.onSettings,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _HeroGreeting(
+            greeting: widget.greeting,
+            userName: widget.userName,
+            todayLabel: widget.todayLabel,
+          ),
+          const SizedBox(height: 20),
+          Text(
+            widget.progressState.isLoading
+                ? 'Loading your rituals…'
+                : 'Habits are better together',
+            style: TextStyle(
+                fontSize: 13, color: Colors.white.withOpacity(0.75)),
+          ),
+        ]),
+      ).animate().fadeIn(duration: 500.ms).slideY(begin: -0.1, end: 0);
+    }
+
+    final safePage = _page.clamp(0, groups.length - 1);
+
+    return Column(
+      children: [
+        SizedBox(
+          // Covers the card's 56px top margin + 48px padding + content.
+          height: 276,
+          child: PageView.builder(
+            controller: _controller,
+            physics: groups.length == 1
+                ? const NeverScrollableScrollPhysics()
+                : const BouncingScrollPhysics(),
+            onPageChanged: (i) => setState(() => _page = i),
+            itemCount: groups.length,
+            itemBuilder: (_, i) => _GroupHeroCard(
+              group: groups[i],
+              greeting: widget.greeting,
+              userName: widget.userName,
+              todayLabel: widget.todayLabel,
+              cs: widget.cs,
+              isDark: widget.isDark,
+              onSettings: widget.onSettings,
+              showGreeting: i == 0,
+            ),
+          ),
+        ),
+        if (groups.length > 1) ...[
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var i = 0; i < groups.length; i++)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  width: i == safePage ? 18 : 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: i == safePage
+                        ? widget.cs.primary
+                        : widget.cs.onSurface.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ],
+    ).animate().fadeIn(duration: 500.ms).slideY(begin: -0.1, end: 0);
+  }
+}
+
+/// One group's card: who's checked in, the shared streak, and what today needs.
+class _GroupHeroCard extends StatelessWidget {
+  final GroupProgress group;
+  final String greeting;
+  final String userName;
+  final String todayLabel;
+  final ColorScheme cs;
+  final bool isDark;
+  final VoidCallback onSettings;
+  final bool showGreeting;
+
+  const _GroupHeroCard({
+    required this.group,
+    required this.greeting,
+    required this.userName,
+    required this.todayLabel,
+    required this.cs,
+    required this.isDark,
+    required this.onSettings,
+    required this.showGreeting,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final done = group.todaySummary.membersDoneToday;
+    final total = group.memberCount;
+    final allDone = group.goals.isNotEmpty &&
+        group.todaySummary.goalsNeedingEveryoneToday == 0;
+    final ringDone = group.goalsDoneByMeToday.length;
+    final ringTotal = group.goals.length;
+
+    return _HeroShell(
+      cs: cs,
+      isDark: isDark,
+      allDone: allDone,
+      onSettings: onSettings,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (showGreeting)
+                  _HeroGreeting(
+                    greeting: greeting,
+                    userName: userName,
+                    todayLabel: todayLabel,
+                    compact: true,
+                  )
+                else
+                  Text(todayLabel,
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.white.withOpacity(0.65))),
+                const SizedBox(height: 12),
+
+                // The group, not the person.
+                Text(
+                  group.groupName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: -0.6),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$done/$total checked in today',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withOpacity(0.85)),
+                ),
+                const SizedBox(height: 10),
+
+                // Shared streak, on white-on-gradient rather than the themed pill.
+                if (group.groupStreak > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Text('🔥', style: TextStyle(fontSize: 11)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${group.groupStreak} week streak',
+                        style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white),
+                      ),
+                    ]),
+                  ),
+                const SizedBox(height: 10),
+
+                Text(
+                  StatusStyle.todayHeadline(group),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.35,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withOpacity(0.8)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          if (ringTotal > 0)
+            _CompletionRing(
+              progress: ringDone / ringTotal,
+              done: ringDone,
+              total: ringTotal,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The gradient card chrome shared by every hero variant.
+class _HeroShell extends StatelessWidget {
+  final Widget child;
+  final ColorScheme cs;
+  final bool isDark;
+  final bool allDone;
+  final VoidCallback onSettings;
+
+  const _HeroShell({
+    required this.child,
+    required this.cs,
+    required this.isDark,
+    required this.allDone,
+    required this.onSettings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 56, 20, 0),
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: allDone
-              ? [const Color(0xFF48BB78), const Color(0xFF38A169)]
+              ? [AppTheme.success, AppTheme.successDeep]
               : isDark
                   ? [cs.primary.withOpacity(0.9), cs.primary.withOpacity(0.5)]
                   : [cs.primary, cs.primary.withOpacity(0.7)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(AppTheme.radiusHero),
         boxShadow: [
           BoxShadow(
-            color: (allDone ? const Color(0xFF48BB78) : cs.primary).withOpacity(0.35),
+            color: (allDone ? AppTheme.success : cs.primary).withOpacity(0.35),
             blurRadius: 24,
             offset: const Offset(0, 8),
           ),
@@ -470,67 +693,47 @@ class _HeroHeader extends StatelessWidget {
             ),
           ),
 
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(greeting,
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500,
-                          color: Colors.white.withOpacity(0.75))),
-                  const SizedBox(height: 6),
-                  Text(userName,
-                      style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800,
-                          color: Colors.white, letterSpacing: -1)),
-                  const SizedBox(height: 4),
-                  Text(todayLabel,
-                      style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.65))),
-                  const SizedBox(height: 20),
-                  // Progress
-                  if (total > 0) ...[
-                    Text(
-                      allDone ? '🎉 All done!' : '${doneCount ?? 0} of $total today',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-                          color: Colors.white.withOpacity(0.9)),
-                    ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 6,
-                        backgroundColor: Colors.white.withOpacity(0.2),
-                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    ),
-                  ] else
-                    Text('No rituals yet',
-                        style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.65))),
-                ]),
-              ),
-              const SizedBox(width: 20),
-              // Ring
-              if (total > 0)
-                _CompletionRing(progress: progress, done: doneCount ?? 0, total: total),
-            ],
-          ),
+          child,
         ],
       ),
-    ).animate().fadeIn(duration: 500.ms).slideY(begin: -0.1, end: 0);
+    );
   }
+}
 
-  int _computeDone(List<dynamic> goals, List<dynamic> checkIns) {
-    final now = DateTime.now();
-    int done = 0;
-    for (final g in goals) {
-      final completed = checkIns.any((c) {
-        if (c['goalId'] != g['_id']) return false;
-        final d = DateTime.parse(c['date']).toLocal();
-        return d.year == now.year && d.month == now.month && d.day == now.day;
-      });
-      if (completed) done++;
-    }
-    return done;
+class _HeroGreeting extends StatelessWidget {
+  final String greeting;
+  final String userName;
+  final String todayLabel;
+  final bool compact;
+
+  const _HeroGreeting({
+    required this.greeting,
+    required this.userName,
+    required this.todayLabel,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(greeting,
+          style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Colors.white.withOpacity(0.75))),
+      if (!compact) ...[
+        const SizedBox(height: 6),
+        Text(userName,
+            style: const TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+                letterSpacing: -1)),
+      ],
+      const SizedBox(height: 4),
+      Text(todayLabel,
+          style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.65))),
+    ]);
   }
 }
 
@@ -604,28 +807,24 @@ class _RingPainter extends CustomPainter {
 
 class _RitualTile extends StatelessWidget {
   final int index;
-  final dynamic goal;
-  final dynamic group;
-  final bool isCompleted;
-  final VoidCallback onGo;
+  final GroupGoalProgress goal;
+  final String groupName;
+  final String groupId;
+  final bool isSolo;
 
   const _RitualTile({
     required this.index,
     required this.goal,
-    required this.group,
-    required this.isCompleted,
-    required this.onGo,
+    required this.groupName,
+    required this.groupId,
+    required this.isSolo,
   });
-
-  static const _accentColors = [
-    Color(0xFF7B6FE8), Color(0xFFE8A838), Color(0xFF48BB78),
-    Color(0xFF4299E1), Color(0xFFED64A6), Color(0xFF9F7AEA),
-  ];
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final accent = _accentColors[index % _accentColors.length];
+    final accent = AppTheme.accentForIndex(index);
+    final isCompleted = goal.currentUserCompletedToday;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -669,51 +868,42 @@ class _RitualTile extends StatelessWidget {
             color: accent.withOpacity(0.12),
             borderRadius: BorderRadius.circular(14),
           ),
-          child: Center(child: Text(goal['icon'] ?? '🎯', style: const TextStyle(fontSize: 20))),
+          child: Center(child: Text(goal.icon, style: const TextStyle(fontSize: 20))),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(goal['name'],
-                style: TextStyle(
-                  fontWeight: FontWeight.w700, fontSize: 15,
-                  decoration: isCompleted ? TextDecoration.lineThrough : null,
-                  color: isCompleted ? cs.onSurface.withOpacity(0.4) : cs.onSurface,
-                )),
-            const SizedBox(height: 2),
-            Text(group['name'] ?? '',
-                style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.4))),
-          ]),
-        ),
-        if (isCompleted)
-          Container(
-            margin: const EdgeInsets.only(right: 16),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.check_rounded, size: 16, color: cs.primary),
-          )
-        else
-          GestureDetector(
-            onTap: onGo,
-            child: Container(
-              margin: const EdgeInsets.only(right: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [accent, accent.withOpacity(0.75)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: accent.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))],
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => context.push('/group/$groupId'),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(goal.goalName,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700, fontSize: 15,
+                    decoration: isCompleted ? TextDecoration.lineThrough : null,
+                    color: isCompleted ? cs.onSurface.withOpacity(0.4) : cs.onSurface,
+                  )),
+              const SizedBox(height: 2),
+              Text(
+                // Once you're done, show what the group still needs.
+                isCompleted && !isSolo ? StatusStyle.goalHint(goal) : groupName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.4)),
               ),
-              child: const Text('Go',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
-            ),
+            ]),
           ),
+        ),
+        const SizedBox(width: 10),
+        Padding(
+          padding: const EdgeInsets.only(right: 16),
+          child: CheckInButton(
+            goalId: goal.goalId,
+            groupId: groupId,
+            date: DateTime.now(),
+            isCompleted: isCompleted,
+            size: CheckInButtonSize.compact,
+          ),
+        ),
       ]),
     ).animate(delay: Duration(milliseconds: 100 + index * 80))
         .fadeIn(duration: 400.ms)
@@ -871,15 +1061,28 @@ class _EmptyRitualsCard extends StatelessWidget {
   }
 }
 
-// ── Missed Yesterday Banner ───────────────────────────────────────────────────
+// ── Streak At Risk Banner ─────────────────────────────────────────────────────
 
-class _MissedYesterdayBanner extends StatelessWidget {
+/// Shown when a group's streak needs attention.
+///
+/// Replaces the old "You missed yesterday!" banner, which fired on a purely
+/// personal signal. This is driven by the server's streakStatus, and its copy
+/// comes from StatusStyle — encouraging, never blaming.
+class _StreakAtRiskBanner extends StatelessWidget {
+  final GroupProgress group;
   final VoidCallback onDismiss;
   final ColorScheme cs;
-  const _MissedYesterdayBanner({required this.onDismiss, required this.cs});
+
+  const _StreakAtRiskBanner({
+    required this.group,
+    required this.onDismiss,
+    required this.cs,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final style = StatusStyle.forStreak(group);
+
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
       margin: const EdgeInsets.only(bottom: 4),
@@ -893,14 +1096,19 @@ class _MissedYesterdayBanner extends StatelessWidget {
         boxShadow: [BoxShadow(color: Colors.orange.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: Row(children: [
-        const Text('⚡', style: TextStyle(fontSize: 22)),
+        const Text('\u{1F525}', style: TextStyle(fontSize: 22)),
         const SizedBox(width: 10),
-        const Expanded(
+        Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('You missed yesterday!',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white)),
-            Text("Don't break your streak — check in today.",
-                style: TextStyle(fontSize: 11, color: Colors.white70)),
+            Text('${group.groupName} — keep the streak alive',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white)),
+            Text(style.encouragement,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: Colors.white70)),
           ]),
         ),
         IconButton(

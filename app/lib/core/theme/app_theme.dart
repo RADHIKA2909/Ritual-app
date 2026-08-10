@@ -28,6 +28,36 @@ class AppTheme {
   static const Color textLight     = Color(0xFFF0EEFF);
   static const Color textMuted     = Color(0xFF9992C8);
 
+  // ── Semantic status colours ────────────────────────────────────────
+  // Names for values the screens were already using as raw hex. Purple stays
+  // the primary/interaction colour; these are only for state.
+  //   success — completed, healthy
+  //   warning — needs attention
+  //   danger  — destructive, or a streak at risk
+  static const Color success       = Color(0xFF48BB78);
+  static const Color successDeep   = Color(0xFF38A169);  // gradient partner
+  static const Color warning       = Color(0xFFED8936);
+  static const Color danger        = Color(0xFFE53E3E);
+
+  /// Rotating per-group accents, so groups stay visually distinguishable
+  /// without every goal getting its own colour.
+  static const List<Color> groupAccents = [
+    Color(0xFF7B6FE8),
+    Color(0xFF48BB78),
+    Color(0xFFED8936),
+    Color(0xFFE8A838),
+    Color(0xFF4299E1),
+    Color(0xFFED64A6),
+  ];
+
+  static Color accentForIndex(int i) => groupAccents[i % groupAccents.length];
+
+  // ── Shape scale ────────────────────────────────────────────────────
+  static const double radiusCard  = 20;
+  static const double radiusHero  = 28;
+  static const double radiusSheet = 28;
+  static const double radiusPill  = 12;
+
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,

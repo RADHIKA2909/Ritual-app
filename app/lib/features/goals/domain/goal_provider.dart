@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'pending_check_in_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
 import '../../groups/domain/group_provider.dart';
@@ -146,36 +147,57 @@ class CheckInNotifier extends AsyncNotifier<Map<String, List<dynamic>>> {
     }
   }
 
-  Future<void> toggleCheckIn(String goalId, DateTime date) async {
+  /// Is there a completed check-in for this user/goal/day in local state?
+  bool isCompletedOn(String goalId, String userId, DateTime date) {
+    final checkIns = state.value?[goalId] ?? const [];
+    for (final c in checkIns) {
+      if (c['userId'] != userId) continue;
+      final d = DateTime.parse(c['date']).toLocal();
+      if (d.year == date.year && d.month == date.month && d.day == date.day) {
+        return c['completed'] == true;
+      }
+    }
+    return false;
+  }
+
+  /// Set the current user's check-in for [date] to [completed].
+  ///
+  /// Preferred over [toggleCheckIn]: it sends an explicit target value, so a
+  /// double tap converges instead of silently undoing the check-in, and two
+  /// devices acting at once agree rather than flip-flopping.
+  ///
+  /// Returns false when the request was skipped (already in flight) or failed.
+  Future<bool> setCheckIn(String goalId, DateTime date, bool completed) async {
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getString('user_id');
-    if (userId == null) return;
+    if (userId == null) return false;
+
+    final pending = ref.read(pendingCheckInProvider.notifier);
+    final key = pendingCheckInKey(goalId, date);
+    // Duplicate guard: a second tap while the first is in flight is a no-op.
+    if (!pending.begin(key)) return false;
 
     final currentState = state.value ?? {};
     final checkIns = List<dynamic>.from(currentState[goalId] ?? []);
-    
-    // Find if a check-in already exists for this date
-    int existingIndex = checkIns.indexWhere((c) {
+
+    final existingIndex = checkIns.indexWhere((c) {
       if (c['userId'] != userId) return false;
       final checkInDate = DateTime.parse(c['date']).toLocal();
       return checkInDate.year == date.year &&
-             checkInDate.month == date.month &&
-             checkInDate.day == date.day;
+          checkInDate.month == date.month &&
+          checkInDate.day == date.day;
     });
 
-    // Optimistic Update
+    // Optimistic update — to the explicit target, not a flip.
     if (existingIndex >= 0) {
-      checkIns[existingIndex] = {
-        ...checkIns[existingIndex],
-        'completed': !checkIns[existingIndex]['completed'],
-      };
+      checkIns[existingIndex] = {...checkIns[existingIndex], 'completed': completed};
     } else {
       checkIns.add({
         '_id': 'temp_${DateTime.now().millisecondsSinceEpoch}',
         'userId': userId,
         'goalId': goalId,
         'date': DateTime.utc(date.year, date.month, date.day).toIso8601String(),
-        'completed': true,
+        'completed': completed,
       });
     }
 
@@ -183,30 +205,45 @@ class CheckInNotifier extends AsyncNotifier<Map<String, List<dynamic>>> {
     state = AsyncData({...currentState});
 
     try {
-      // Fire API call in background — send UTC midnight to avoid date shifting across timezones
-      final response = await ApiClient.instance.post('/goals/$goalId/checkin', data: {
-        'date': DateTime.utc(date.year, date.month, date.day).toIso8601String(),
-      });
-      
-      // Replace with real data from server (to get real _id)
+      // Send UTC midnight to avoid date shifting across timezones.
+      final response = await ApiClient.instance.post(
+        '/goals/$goalId/checkin',
+        data: {
+          'date': DateTime.utc(date.year, date.month, date.day).toIso8601String(),
+          'completed': completed,
+        },
+      );
+
+      // Swap the optimistic row for the server's, so we hold the real _id.
       final realCheckIn = response.data;
       final newCheckIns = List<dynamic>.from(currentState[goalId] ?? []);
-      
       final replaceIndex = newCheckIns.indexWhere((c) {
-         if (c['userId'] != userId) return false;
-         final d = DateTime.parse(c['date']).toLocal();
-         return d.year == date.year && d.month == date.month && d.day == date.day;
+        if (c['userId'] != userId) return false;
+        final d = DateTime.parse(c['date']).toLocal();
+        return d.year == date.year && d.month == date.month && d.day == date.day;
       });
-
       if (replaceIndex >= 0) {
         newCheckIns[replaceIndex] = realCheckIn;
       }
-      
+
       currentState[goalId] = newCheckIns;
       state = AsyncData({...currentState});
+      return true;
     } catch (e) {
-      // Revert if failed
+      // Revert to server truth.
       await fetchCheckIns(goalId);
+      return false;
+    } finally {
+      pending.end(key);
     }
+  }
+
+  /// Legacy toggle, kept so existing call sites keep working.
+  /// Prefer [setCheckIn], which is idempotent and guarded against double taps.
+  Future<void> toggleCheckIn(String goalId, DateTime date) async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getString('user_id');
+    if (userId == null) return;
+    await setCheckIn(goalId, date, !isCompletedOn(goalId, userId, date));
   }
 }

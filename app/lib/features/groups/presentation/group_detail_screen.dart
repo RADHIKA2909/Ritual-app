@@ -8,7 +8,13 @@ import '../../goals/presentation/widgets/goal_card.dart';
 import '../../goals/presentation/widgets/create_goal_dialog.dart';
 import '../../goals/domain/goal_provider.dart';
 import '../domain/group_provider.dart';
-import '../../../core/network/api_client.dart';
+import '../domain/group_progress_provider.dart';
+import '../domain/models/group_progress.dart';
+import '../../home/domain/my_progress_provider.dart';
+import '../../../core/network/socket_events.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/status_style.dart';
+import 'widgets/group_status_widgets.dart';
 
 class GroupDetailScreen extends ConsumerStatefulWidget {
   final String groupId;
@@ -19,13 +25,7 @@ class GroupDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
-  String? groupName;
-  String? inviteCode;
-  String? adminId;
   String? currentUserId;
-  List<dynamic> members = [];
-  bool isLoading = true;
-  int streak = 0;
 
   // Named callbacks — must pass these to off() to avoid removing other screens' listeners
   late final Function(dynamic) _goalUpdatedHandler;
@@ -34,78 +34,66 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _goalUpdatedHandler = (_) { if (mounted && !isLoading) _silentReload(); };
-    _checkinUpdatedHandler = (_) { if (mounted && !isLoading) _silentReload(); };
+    _goalUpdatedHandler = (_) => _refresh();
+    _checkinUpdatedHandler = (payload) => _refresh(
+          goalId: goalIdFromCheckinPayload(payload),
+        );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadGroupData());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCurrentUser());
     SocketService().initSocket();
     SocketService().joinGroup(widget.groupId);
-    SocketService().on('goal_updated', _goalUpdatedHandler);
-    SocketService().on('checkin_updated', _checkinUpdatedHandler);
+    SocketService().on(SocketEvents.goalUpdated, _goalUpdatedHandler);
+    SocketService().on(SocketEvents.checkinUpdated, _checkinUpdatedHandler);
   }
 
   @override
   void dispose() {
     SocketService().leaveGroup(widget.groupId);
-    SocketService().off('goal_updated', _goalUpdatedHandler);
-    SocketService().off('checkin_updated', _checkinUpdatedHandler);
+    SocketService().off(SocketEvents.goalUpdated, _goalUpdatedHandler);
+    SocketService().off(SocketEvents.checkinUpdated, _checkinUpdatedHandler);
     super.dispose();
   }
 
-  Future<void> _silentReload() async {
-    try {
-      final response = await ApiClient.instance.get('/groups/${widget.groupId}');
-      if (!mounted) return;
-      setState(() {
-        groupName = response.data['name'];
-        inviteCode = response.data['inviteCode'];
-        adminId = response.data['adminId'];
-        members = response.data['members'] ?? [];
-      });
-      ref.read(goalsProvider.notifier).fetchGoalsSilently(widget.groupId);
-      final goals = ref.read(goalsProvider).value;
-      if (goals != null) {
-        for (final goal in goals) {
-          ref.read(checkInProvider.notifier).fetchCheckIns(goal['_id']);
-        }
-      }
-      final sr = await ApiClient.instance.get('/goals/group/${widget.groupId}/streak');
-      if (!mounted) return;
-      setState(() => streak = sr.data['streak'] ?? 0);
-    } catch (_) {}
+  /// One progress refetch, plus the affected goal's raw check-ins when the
+  /// event told us which goal changed.
+  ///
+  /// This used to refetch the group, all goals, every goal's check-ins and the
+  /// streak on every single event — 1+1+N+1 requests each time any member
+  /// ticked anything, and it read the goal list before the refetch resolved.
+  void _refresh({String? goalId}) {
+    if (!mounted) return;
+    ref.read(groupProgressProvider(widget.groupId).notifier).refreshSilently();
+    if (goalId != null) {
+      ref.read(checkInProvider.notifier).fetchCheckIns(goalId);
+    }
   }
 
-  Future<void> _loadGroupData() async {
+  Future<void> _loadCurrentUser() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() => currentUserId = prefs.getString('user_id'));
-    ref.read(goalsProvider.notifier).fetchGoals(widget.groupId);
-    try {
-      final response = await ApiClient.instance.get('/groups/${widget.groupId}');
-      setState(() {
-        groupName = response.data['name'];
-        inviteCode = response.data['inviteCode'];
-        adminId = response.data['adminId'];
-        members = response.data['members'] ?? [];
-        isLoading = false;
-      });
-      try {
-        final sr = await ApiClient.instance.get('/goals/group/${widget.groupId}/streak');
-        setState(() => streak = sr.data['streak'] ?? 0);
-      } catch (_) {}
-    } catch (_) {
-      setState(() => isLoading = false);
-    }
   }
 
   Future<void> _removeMember(String memberId) async {
     try {
       await ref.read(groupProvider.notifier).removeMember(widget.groupId, memberId);
-      _loadGroupData();
+      ref.invalidate(groupProgressProvider(widget.groupId));
+      ref.read(myProgressProvider.notifier).refreshSilently();
     } catch (_) {}
   }
 
-  void _showSettings() {
-    final isAdmin = currentUserId == adminId;
+  /// The raw `{_id, name, profileImage}` shape that the settings sheet and the
+  /// leaderboard route still expect.
+  List<Map<String, dynamic>> _rawMembers(GroupProgress progress) => [
+        for (final m in progress.members)
+          {'_id': m.userId, 'name': m.name, 'profileImage': m.profileImage},
+      ];
+
+  void _showSettings(GroupProgress progress) {
+    final isAdmin = progress.isAdmin;
+    final inviteCode = progress.inviteCode;
+    final adminId = progress.adminId;
+    final members = _rawMembers(progress);
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -148,7 +136,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                       color: Theme.of(ctx).colorScheme.primary.withOpacity(0.3)),
                 ),
                 child: Text(
-                  inviteCode!,
+                  inviteCode,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 28,
@@ -270,13 +258,39 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    final goalsState = ref.watch(goalsProvider);
-    final isAdmin = currentUserId == adminId;
+    final progressState = ref.watch(groupProgressProvider(widget.groupId));
     final cs = Theme.of(context).colorScheme;
+
+    return progressState.when(
+      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (err, _) => Scaffold(
+        body: Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.wifi_off_rounded, size: 48, color: cs.onSurface.withOpacity(0.2)),
+            const SizedBox(height: 12),
+            Text('Could not load this group',
+                style: TextStyle(color: cs.onSurface.withOpacity(0.4))),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () => ref.invalidate(groupProgressProvider(widget.groupId)),
+              child: const Text('Try again'),
+            ),
+            TextButton(
+              onPressed: () => context.go('/dashboard'),
+              child: const Text('Back to groups'),
+            ),
+          ]),
+        ),
+      ),
+      data: (progress) => _buildContent(context, progress),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, GroupProgress progress) {
+    final cs = Theme.of(context).colorScheme;
+    final isAdmin = progress.isAdmin;
+    final members = _rawMembers(progress);
+    final groupName = progress.groupName;
 
     return Scaffold(
       body: CustomScrollView(slivers: [
@@ -317,7 +331,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                 ),
                 child: Icon(Icons.tune_rounded, size: 18, color: cs.onSurface),
               ),
-              onPressed: _showSettings,
+              onPressed: () => _showSettings(progress),
             ),
             const SizedBox(width: 8),
           ],
@@ -330,7 +344,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Text(groupName ?? 'Group',
+                    Text(groupName,
                         style: const TextStyle(
                             fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -1)),
                     const SizedBox(height: 8),
@@ -358,7 +372,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                       }),
                       SizedBox(width: members.length > 1 ? 4.0 : 0),
                       Text(
-                        members.length == 1
+                        progress.isSolo
                             ? 'Just you'
                             : members
                                 .map((m) => (m['name'] as String).split(' ').first)
@@ -369,24 +383,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                             fontWeight: FontWeight.w500),
                       ),
                       const Spacer(),
-                      if (streak > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(children: [
-                            const Text('🔥', style: TextStyle(fontSize: 13)),
-                            const SizedBox(width: 4),
-                            Text('$streak wk streak',
-                                style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.orange)),
-                          ]),
-                        ),
+                      StreakPill(progress: progress, compact: true),
                     ]),
                   ],
                 ),
@@ -395,14 +392,8 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
           ),
         ),
 
-        // ── Today's Status ──────────────────────────────────────────
-        SliverToBoxAdapter(
-          child: _TodayStatusBar(
-            members: members,
-            currentUserId: currentUserId,
-            goalsState: goalsState,
-          ),
-        ),
+        // ── Our progress this week ──────────────────────────────────
+        SliverToBoxAdapter(child: _GroupSummaryHeader(progress: progress)),
 
         // ── Quick action buttons (Activity + Leaderboard + Chat) ────
         SliverToBoxAdapter(
@@ -436,7 +427,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                   label: 'Chat',
                   onTap: () => context.push(
                     '/group/${widget.groupId}/chat',
-                    extra: {'groupName': groupName ?? 'Group'},
+                    extra: {'groupName': groupName},
                   ),
                   cs: cs,
                 ),
@@ -445,54 +436,47 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
           ),
         ),
 
-        // ── Goals list ───────────────────────────────────────────────
-        goalsState.when(
-          loading: () => const SliverFillRemaining(
-              child: Center(child: CircularProgressIndicator())),
-          error: (err, _) => SliverFillRemaining(
-              child: Center(child: Text('Error: $err'))),
-          data: (goals) {
-            if (goals.isEmpty) {
-              return SliverFillRemaining(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(40),
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.emoji_events_outlined,
-                          size: 52, color: cs.onSurface.withOpacity(0.2)),
-                      const SizedBox(height: 16),
-                      Text(
-                        isAdmin
-                            ? 'No goals yet.\nTap + to add the first one!'
-                            : 'No goals yet.\nWaiting for the admin.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: cs.onSurface.withOpacity(0.45), height: 1.5),
-                      ),
-                    ]),
+        // ── Rituals ──────────────────────────────────────────────────
+        if (progress.goals.isEmpty)
+          SliverFillRemaining(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(40),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.emoji_events_outlined,
+                      size: 52, color: cs.onSurface.withOpacity(0.2)),
+                  const SizedBox(height: 16),
+                  Text(
+                    isAdmin
+                        ? 'No rituals yet.\nAdd the first one you\'ll do together.'
+                        : 'No rituals yet.\nWaiting for the admin.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: cs.onSurface.withOpacity(0.45), height: 1.5),
                   ),
-                ),
-              );
-            }
-
-            return SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (ctx, i) => GoalCard(
-                    goalId: goals[i]['_id'],
-                    groupId: widget.groupId,
-                    goalName: goals[i]['name'],
-                    icon: goals[i]['icon'],
-                    weeklyMinimum: goals[i]['weeklyMinimum'] ?? 3,
-                    isAdmin: isAdmin,
-                    groupMembers: members,
-                  ),
-                  childCount: goals.length,
-                ),
+                ]),
               ),
-            );
-          },
-        ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (ctx, i) => GoalCard(
+                  goalId: progress.goals[i].goalId,
+                  groupId: widget.groupId,
+                  goalName: progress.goals[i].goalName,
+                  icon: progress.goals[i].icon,
+                  weeklyMinimum: progress.goals[i].weeklyMinimum,
+                  isAdmin: isAdmin,
+                  groupMembers: members,
+                  progress: progress.goals[i],
+                  isSolo: progress.isSolo,
+                ),
+                childCount: progress.goals.length,
+              ),
+            ),
+          ),
       ]),
 
       floatingActionButton: isAdmin
@@ -553,170 +537,6 @@ class _QuickActionButton extends StatelessWidget {
   }
 }
 
-class _TodayStatusBar extends ConsumerWidget {
-  final List<dynamic> members;
-  final String? currentUserId;
-  final AsyncValue<List<dynamic>> goalsState;
-
-  const _TodayStatusBar({
-    required this.members,
-    required this.currentUserId,
-    required this.goalsState,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (members.isEmpty) return const SizedBox.shrink();
-
-    final checkInState = ref.watch(checkInProvider);
-    final allCheckIns = checkInState.value ?? {};
-    final goals = goalsState.value ?? [];
-
-    final now = DateTime.now();
-
-    // For each member, check if they have at least 1 completed check-in today
-    // across any goal
-    Map<String, bool> memberCheckedIn = {};
-    for (final member in members) {
-      final memberId = member['_id'].toString();
-      bool checkedInToday = false;
-      for (final goal in goals) {
-        final goalId = goal['_id'].toString();
-        final checkIns = allCheckIns[goalId] ?? [];
-        checkedInToday = checkIns.any((c) {
-          if (c['userId'].toString() != memberId) return false;
-          if (c['completed'] != true) return false;
-          final d = DateTime.parse(c['date']).toLocal();
-          return d.year == now.year && d.month == now.month && d.day == now.day;
-        });
-        if (checkedInToday) break;
-      }
-      memberCheckedIn[memberId] = checkedInToday;
-    }
-
-    final cs = Theme.of(context).colorScheme;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: cs.surfaceVariant.withOpacity(0.4),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: cs.onSurface.withOpacity(0.06)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Text(
-                "TODAY'S STATUS",
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: cs.onSurface.withOpacity(0.4),
-                ),
-              ),
-              const Spacer(),
-              // Summary count
-              Text(
-                '${memberCheckedIn.values.where((v) => v).length}/${members.length} checked in',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurface.withOpacity(0.4),
-                ),
-              ),
-            ]),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: members.length <= 4
-                  ? MainAxisAlignment.spaceAround
-                  : MainAxisAlignment.start,
-              children: members.map<Widget>((member) {
-                final memberId = member['_id'].toString();
-                final isMe = memberId == currentUserId;
-                final isDone = memberCheckedIn[memberId] ?? false;
-                final name = (member['name'] as String).split(' ').first;
-
-                return Padding(
-                  padding: members.length > 4
-                      ? const EdgeInsets.only(right: 16)
-                      : EdgeInsets.zero,
-                  child: Column(children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          width: 44, height: 44,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: isDone
-                                  ? cs.primary.withOpacity(0.5)
-                                  : cs.onSurface.withOpacity(0.1),
-                              width: 2,
-                            ),
-                          ),
-                          child: ClipOval(
-                            child: UserAvatar(
-                              name: name,
-                              profileImage: member is Map
-                                  ? member['profileImage'] as String?
-                                  : null,
-                              radius: 22,
-                            ),
-                          ),
-                        ),
-                        // Status badge
-                        Positioned(
-                          bottom: -2, right: -2,
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 300),
-                            width: 18, height: 18,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: isDone
-                                  ? const Color(0xFF48BB78)
-                                  : cs.surfaceVariant,
-                              border: Border.all(
-                                  color: cs.surface, width: 1.5),
-                            ),
-                            child: Center(
-                              child: isDone
-                                  ? const Icon(Icons.check_rounded,
-                                      size: 10, color: Colors.white)
-                                  : Icon(Icons.schedule_rounded,
-                                      size: 10,
-                                      color: cs.onSurface.withOpacity(0.35)),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      isMe ? 'You' : name,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: isDone
-                            ? cs.onSurface.withOpacity(0.8)
-                            : cs.onSurface.withOpacity(0.4),
-                      ),
-                    ),
-                  ]),
-                );
-              }).toList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _DangerButton extends StatelessWidget {
   final IconData icon;
@@ -749,6 +569,192 @@ class _DangerButton extends StatelessWidget {
                   color: Colors.redAccent, fontWeight: FontWeight.w600)),
         ]),
       ),
+    );
+  }
+}
+
+/// The group's shared standing: streak, health, this week's commitments, and
+/// who still has something to do today.
+///
+/// Everything here comes from the server-derived progress model — no client
+/// side streak or completion maths.
+class _GroupSummaryHeader extends StatelessWidget {
+  final GroupProgress progress;
+
+  const _GroupSummaryHeader({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final streakStyle = StatusStyle.forStreak(progress);
+
+    // Commitments = every member's share of every goal for the week.
+    final totalCommitments = progress.goals.fold<int>(
+      0,
+      (sum, g) => sum + g.weeklyMinimum * progress.memberCount,
+    );
+    final keptCommitments = progress.goals.fold<int>(
+      0,
+      (sum, g) => sum + g.memberProgress.fold<int>(
+            0,
+            (s, m) => s + (m.completedCount > m.target ? m.target : m.completedCount),
+          ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: cs.surfaceVariant.withOpacity(0.4),
+          borderRadius: BorderRadius.circular(AppTheme.radiusHero),
+          border: Border.all(color: cs.onSurface.withOpacity(0.06)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Headline — what today asks of this group.
+            Text(
+              StatusStyle.todayHeadline(progress),
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+                color: cs.onSurface,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              StatusStyle.checkedInToday(progress),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: cs.onSurface.withOpacity(0.5),
+              ),
+            ),
+
+            if (progress.goals.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(
+                  child: _SummaryStat(
+                    label: 'This week',
+                    value: '$keptCommitments/$totalCommitments',
+                    caption: 'commitments kept',
+                    color: cs.primary,
+                  ),
+                ),
+                Container(
+                  width: 1,
+                  height: 34,
+                  color: cs.onSurface.withOpacity(0.08),
+                ),
+                Expanded(
+                  child: _SummaryStat(
+                    label: 'Rituals met',
+                    value:
+                        '${progress.goalsCompletedThisWeek}/${progress.goals.length}',
+                    caption: 'as a group',
+                    color: progress.goalsCompletedThisWeek == progress.goals.length
+                        ? AppTheme.success
+                        : cs.primary,
+                  ),
+                ),
+              ]),
+
+              // Streak + health, side by side. Streak is reserved for the group
+              // level; it deliberately doesn't appear on individual goal cards.
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  StreakPill(progress: progress),
+                  if (progress.health != null)
+                    GroupHealthChip(health: progress.health!),
+                ],
+              ),
+
+              if (streakStyle.encouragement.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Row(children: [
+                  Icon(streakStyle.icon, size: 14, color: streakStyle.color),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      streakStyle.encouragement,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: streakStyle.color,
+                        letterSpacing: -0.1,
+                      ),
+                    ),
+                  ),
+                ]),
+              ],
+            ],
+
+            if (progress.members.length > 1) ...[
+              const SizedBox(height: 16),
+              Divider(height: 1, color: cs.onSurface.withOpacity(0.07)),
+              const SizedBox(height: 14),
+              MemberStatusRow(members: progress.members),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final String caption;
+  final Color color;
+
+  const _SummaryStat({
+    required this.label,
+    required this.value,
+    required this.caption,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+            color: cs.onSurface.withOpacity(0.4),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.8,
+            color: color,
+          ),
+        ),
+        Text(
+          caption,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            color: cs.onSurface.withOpacity(0.4),
+          ),
+        ),
+      ],
     );
   }
 }
