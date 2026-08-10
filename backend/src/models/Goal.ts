@@ -5,7 +5,6 @@ export interface IGoal extends Document {
   name: string; // e.g. "Gym", "No Junk"
   icon: string; // Emoji e.g. "💪", "🍔"
   weeklyMinimum: number; // e.g. 3 days/week
-  streakCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -14,8 +13,9 @@ const goalSchema = new Schema<IGoal>({
   groupId: { type: Schema.Types.ObjectId, ref: 'Group', required: true },
   name: { type: String, required: true },
   icon: { type: String, required: true, default: '🎯' },
+  // NOTE: streaks are derived on read in services/progressService.ts, never
+  // stored. A streakCount field used to be declared here but was never written.
   weeklyMinimum: { type: Number, required: true, min: 1, max: 7 },
-  streakCount: { type: Number, default: 0 }
 }, {
   timestamps: true
 });

@@ -1,20 +1,14 @@
 import { Response } from 'express';
-import { AuthRequest } from '../middlewares/authMiddleware';
+import { GroupRequest } from '../middlewares/membershipMiddleware';
 import { Message } from '../models/Message';
-import { Group } from '../models/Group';
 import { io } from '../index';
 
 // @route GET /api/groups/:id/messages
 // @desc  Get last 100 messages for a group (members only)
-export const getMessages = async (req: AuthRequest, res: Response) => {
+// Membership is enforced by requireGroupMember('id').
+export const getMessages = async (req: GroupRequest, res: Response) => {
   try {
     const { id } = req.params;
-
-    const group = await Group.findById(id);
-    if (!group) return res.status(404).json({ message: 'Group not found' });
-    if (!group.members.some((m) => m.equals(req.user!._id as any))) {
-      return res.status(403).json({ message: 'Not a member of this group' });
-    }
 
     const messages = await Message.find({ groupId: id })
       .sort({ createdAt: -1 })
@@ -29,7 +23,8 @@ export const getMessages = async (req: AuthRequest, res: Response) => {
 
 // @route POST /api/groups/:id/messages
 // @desc  Send a message to a group chat
-export const sendMessage = async (req: AuthRequest, res: Response) => {
+// Membership is enforced by requireGroupMember('id').
+export const sendMessage = async (req: GroupRequest, res: Response) => {
   try {
     const { id } = req.params;
     const { text } = req.body;
@@ -38,11 +33,7 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: 'Message cannot be empty' });
     }
 
-    const group = await Group.findById(id);
-    if (!group) return res.status(404).json({ message: 'Group not found' });
-    if (!group.members.some((m) => m.equals(req.user!._id as any))) {
-      return res.status(403).json({ message: 'Not a member of this group' });
-    }
+    const group = req.group!;
 
     const message = await Message.create({
       groupId: id as any,

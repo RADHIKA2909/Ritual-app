@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authMiddleware';
+import { GroupRequest } from '../middlewares/membershipMiddleware';
 import { Group } from '../models/Group';
 import { Goal } from '../models/Goal';
 import { CheckIn } from '../models/CheckIn';
@@ -43,18 +44,14 @@ export const createGroup = async (req: AuthRequest, res: Response) => {
 
 // @route GET /api/groups/:id
 // @desc  Get group details including members
-export const getGroup = async (req: AuthRequest, res: Response) => {
+// Membership is enforced by requireGroupMember('id'). This still re-queries so
+// it can populate member profiles, which the middleware's lookup does not.
+export const getGroup = async (req: GroupRequest, res: Response) => {
   try {
     const group = await Group.findById(req.params.id).populate('members', 'name profileImage');
-    
+
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
-    }
-
-    // Ensure the user is part of the group
-    const isMember = group.members.some((member: any) => member._id.equals(req.user!._id));
-    if (!isMember) {
-      return res.status(403).json({ message: 'Not authorized to view this group' });
     }
 
     res.status(200).json(group);
@@ -120,18 +117,10 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
 
 // @route DELETE /api/groups/:id
 // @desc  Delete a group and its goals/checkins (Admin only)
-export const deleteGroup = async (req: AuthRequest, res: Response) => {
+// Membership + admin are enforced by requireGroupAdmin('id').
+export const deleteGroup = async (req: GroupRequest, res: Response) => {
   try {
-    const group = await Group.findById(req.params.id);
-
-    if (!group) {
-      return res.status(404).json({ message: 'Group not found' });
-    }
-
-    // Ensure the user is the admin
-    if (!group.adminId.equals(req.user!._id)) {
-      return res.status(403).json({ message: 'Only the admin can delete the group' });
-    }
+    const group = req.group!;
 
     // Find all goals in this group
     const goals = await Goal.find({ groupId: group._id });
@@ -158,19 +147,12 @@ export const deleteGroup = async (req: AuthRequest, res: Response) => {
 
 // @route DELETE /api/groups/:id/members/:memberId
 // @desc  Remove a member from the group (Admin only)
-export const removeMember = async (req: AuthRequest, res: Response) => {
+// Membership + admin are enforced by requireGroupAdmin('id').
+export const removeMember = async (req: GroupRequest, res: Response) => {
   try {
-    const { id, memberId } = req.params;
-    
-    const group = await Group.findById(id);
-    if (!group) {
-      return res.status(404).json({ message: 'Group not found' });
-    }
+    const { memberId } = req.params;
 
-    // Ensure the user is the admin
-    if (!group.adminId.equals(req.user!._id)) {
-      return res.status(403).json({ message: 'Only the admin can remove members' });
-    }
+    const group = req.group!;
 
     if (group.adminId.equals(memberId as any)) {
       return res.status(400).json({ message: 'Admin cannot be removed' });
@@ -188,19 +170,12 @@ export const removeMember = async (req: AuthRequest, res: Response) => {
 
 // @route GET /api/groups/:id/analytics
 // @desc  Get comprehensive analytics data for the group (all goals + all checkins)
-export const getGroupAnalytics = async (req: AuthRequest, res: Response) => {
+// Membership is enforced by requireGroupMember('id').
+export const getGroupAnalytics = async (req: GroupRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const group = await Group.findById(id);
-    if (!group) {
-      return res.status(404).json({ message: 'Group not found' });
-    }
-
-    // Verify user is in group
-    if (!group.members.includes(req.user!._id as any)) {
-      return res.status(403).json({ message: 'Not authorized to view this group' });
-    }
+    const group = req.group!;
 
     // Fetch all goals
     const goals = await Goal.find({ groupId: id });
@@ -220,12 +195,12 @@ export const getGroupAnalytics = async (req: AuthRequest, res: Response) => {
 
 // @route GET /api/groups/:id/feed
 // @desc  Get recent activity feed for a group (last 50 completed check-ins with user + goal info)
-export const getGroupFeed = async (req: AuthRequest, res: Response) => {
+// Membership is enforced by requireGroupMember('id').
+export const getGroupFeed = async (req: GroupRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const group = await Group.findById(id);
-    if (!group) return res.status(404).json({ message: 'Group not found' });
+    const group = req.group!;
 
     const goals = await Goal.find({ groupId: id });
     const goalIds = goals.map((g) => g._id);
@@ -236,10 +211,10 @@ export const getGroupFeed = async (req: AuthRequest, res: Response) => {
       goalMap[g._id.toString()] = { name: g.name, icon: g.icon };
     }
 
-    const members = await User.find({ _id: { $in: group.members } }, 'name');
-    const userMap: Record<string, string> = {};
+    const members = await User.find({ _id: { $in: group.members } }, 'name profileImage');
+    const userMap: Record<string, { name: string; profileImage?: string }> = {};
     for (const u of members) {
-      userMap[u._id.toString()] = u.name;
+      userMap[u._id.toString()] = { name: u.name, profileImage: u.profileImage };
     }
 
     const checkIns = await CheckIn.find({
@@ -252,7 +227,8 @@ export const getGroupFeed = async (req: AuthRequest, res: Response) => {
     const feed = checkIns.map((c) => ({
       _id: c._id,
       userId: c.userId,
-      userName: userMap[c.userId.toString()] ?? 'Unknown',
+      userName: userMap[c.userId.toString()]?.name ?? 'Unknown',
+      userProfileImage: userMap[c.userId.toString()]?.profileImage ?? null,
       goalId: c.goalId,
       goalName: goalMap[c.goalId.toString()]?.name ?? 'Goal',
       goalIcon: goalMap[c.goalId.toString()]?.icon ?? '🎯',

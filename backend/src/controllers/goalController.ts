@@ -1,13 +1,20 @@
 import { Response } from 'express';
-import { AuthRequest } from '../middlewares/authMiddleware';
+import { GroupRequest } from '../middlewares/membershipMiddleware';
 import { Goal } from '../models/Goal';
 import { Group } from '../models/Group';
 import { CheckIn } from '../models/CheckIn';
+import {
+  buildGoalWeekUserTicks,
+  buildWeeklyGoalTicks,
+  computeGroupStreak,
+} from '../services/progressService';
 import { io } from '../index';
 
 // @route POST /api/groups/:groupId/goals
 // @desc  Add a new goal to a group (Admin only)
-export const createGoal = async (req: AuthRequest, res: Response) => {
+// Membership + admin are enforced by requireGroupAdmin('groupId'), which
+// attaches req.group.
+export const createGoal = async (req: GroupRequest, res: Response) => {
   try {
     const { groupId } = req.params;
     let { name, icon, weeklyMinimum } = req.body;
@@ -24,20 +31,7 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: 'Weekly minimum must be between 1 and 7' });
     }
 
-    const group = await Group.findById(groupId);
-    if (!group) {
-      return res.status(404).json({ message: 'Group not found' });
-    }
-
-    // Verify user is in group
-    if (!group.members.includes(req.user!._id as any)) {
-      return res.status(403).json({ message: 'Not authorized to view this group' });
-    }
-
-    // RBAC: Verify user is the admin
-    if (!group.adminId.equals(req.user!._id)) {
-      return res.status(403).json({ message: 'Only the admin can create goals' });
-    }
+    const group = req.group!;
 
     const goal = await Goal.create({
       groupId: groupId as any,
@@ -59,11 +53,11 @@ export const createGoal = async (req: AuthRequest, res: Response) => {
 
 // @route GET /api/groups/:groupId/goals
 // @desc  Get all goals for a group
-export const getGoals = async (req: AuthRequest, res: Response) => {
+// Membership is enforced by requireGroupMember('groupId').
+export const getGoals = async (req: GroupRequest, res: Response) => {
   try {
     const { groupId } = req.params;
 
-    // We should verify group membership, assuming valid for now
     const goals = await Goal.find({ groupId });
     res.status(200).json(goals);
   } catch (error: any) {
@@ -72,11 +66,21 @@ export const getGoals = async (req: AuthRequest, res: Response) => {
 };
 
 // @route POST /api/goals/:goalId/checkin
-// @desc  Toggle check-in for a specific day
-export const toggleCheckIn = async (req: AuthRequest, res: Response) => {
+// @desc  Set (or toggle) the current user's check-in for a specific day.
+//
+//        Body { date }             -> toggles, as it always has.
+//        Body { date, completed }  -> sets that exact value, idempotently.
+//
+//        The explicit form is preferred by the client: it makes a double tap
+//        harmless instead of silently undoing the check-in, and the upsert
+//        cannot lose the race that the find-then-create path could against the
+//        unique (userId, goalId, date) index.
+// Membership is enforced by requireGoalMember(), which attaches req.goal and
+// req.group — without it any authenticated user could check into any group.
+export const toggleCheckIn = async (req: GroupRequest, res: Response) => {
   try {
     const { goalId } = req.params;
-    const { date } = req.body; // ISO String (e.g. "2026-05-18T00:00:00.000Z")
+    const { date, completed } = req.body; // ISO String (e.g. "2026-05-18T00:00:00.000Z")
 
     if (!date) return res.status(400).json({ message: 'Date is required' });
 
@@ -84,37 +88,47 @@ export const toggleCheckIn = async (req: AuthRequest, res: Response) => {
     const checkDate = new Date(date);
     checkDate.setUTCHours(0, 0, 0, 0);
 
-    let checkIn = await CheckIn.findOne({
-      userId: req.user!._id,
-      goalId,
-      date: checkDate,
-    });
+    let checkIn;
 
-    if (checkIn) {
-      // Toggle it
-      checkIn.completed = !checkIn.completed;
-      await checkIn.save();
+    if (typeof completed === 'boolean') {
+      // Explicit, idempotent set.
+      checkIn = await CheckIn.findOneAndUpdate(
+        { userId: req.user!._id, goalId, date: checkDate },
+        {
+          $set: { completed },
+          $setOnInsert: { userId: req.user!._id, goalId, date: checkDate },
+        },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+      );
     } else {
-      // Create new
-      checkIn = await CheckIn.create({
+      // Legacy toggle — preserved byte-for-byte for older clients.
+      checkIn = await CheckIn.findOne({
         userId: req.user!._id,
-        goalId: goalId as any,
+        goalId,
         date: checkDate,
-        completed: true,
       });
-    }
 
-    // Emit to group room AND each member's personal room (for home screen refresh)
-    const goalData = await Goal.findById(goalId);
-    if (goalData) {
-      io.to(goalData.groupId.toString()).emit('checkin_updated', goalId);
-      const group = await Group.findById(goalData.groupId);
-      if (group) {
-        group.members.forEach((memberId) => {
-          io.to(`user_${memberId}`).emit('checkin_updated');
+      if (checkIn) {
+        checkIn.completed = !checkIn.completed;
+        await checkIn.save();
+      } else {
+        checkIn = await CheckIn.create({
+          userId: req.user!._id,
+          goalId: goalId as any,
+          date: checkDate,
+          completed: true,
         });
       }
     }
+
+    // Emit to group room AND each member's personal room (for home screen refresh)
+    const group = req.group!;
+    const groupId = group._id.toString();
+    io.to(groupId).emit('checkin_updated', goalId);
+    group.members.forEach((memberId) => {
+      // Payload lets a listener refresh just this group instead of everything.
+      io.to(`user_${memberId}`).emit('checkin_updated', { goalId, groupId });
+    });
 
     res.status(200).json(checkIn);
   } catch (error: any) {
@@ -124,7 +138,8 @@ export const toggleCheckIn = async (req: AuthRequest, res: Response) => {
 
 // @route GET /api/goals/:goalId/checkins
 // @desc  Get all check-ins for a goal (for all members in the group)
-export const getCheckIns = async (req: AuthRequest, res: Response) => {
+// Membership is enforced by requireGoalMember().
+export const getCheckIns = async (req: GroupRequest, res: Response) => {
   try {
     const { goalId } = req.params;
     const checkIns = await CheckIn.find({ goalId });
@@ -136,25 +151,13 @@ export const getCheckIns = async (req: AuthRequest, res: Response) => {
 
 // @route PUT /api/goals/:goalId
 // @desc  Edit a goal's name, icon, or weeklyMinimum (Admin only)
-export const editGoal = async (req: AuthRequest, res: Response) => {
+// Membership + admin are enforced by requireGoalAdmin(), which attaches
+// req.goal and req.group.
+export const editGoal = async (req: GroupRequest, res: Response) => {
   try {
-    const { goalId } = req.params;
     const { name, icon, weeklyMinimum } = req.body;
 
-    const goal = await Goal.findById(goalId);
-    if (!goal) {
-      return res.status(404).json({ message: 'Goal not found' });
-    }
-
-    const group = await Group.findById(goal.groupId);
-    if (!group) {
-      return res.status(404).json({ message: 'Group not found' });
-    }
-
-    // RBAC: Verify user is the admin
-    if (!group.adminId.equals(req.user!._id)) {
-      return res.status(403).json({ message: 'Only the admin can edit goals' });
-    }
+    const goal = req.goal!;
 
     if (name !== undefined) goal.name = name;
     if (icon !== undefined) goal.icon = icon;
@@ -171,24 +174,13 @@ export const editGoal = async (req: AuthRequest, res: Response) => {
 
 // @route DELETE /api/goals/:goalId
 // @desc  Delete a goal and its checkins (Admin only)
-export const deleteGoal = async (req: AuthRequest, res: Response) => {
+// Membership + admin are enforced by requireGoalAdmin().
+export const deleteGoal = async (req: GroupRequest, res: Response) => {
   try {
     const { goalId } = req.params;
 
-    const goal = await Goal.findById(goalId);
-    if (!goal) {
-      return res.status(404).json({ message: 'Goal not found' });
-    }
-
-    const group = await Group.findById(goal.groupId);
-    if (!group) {
-      return res.status(404).json({ message: 'Group not found' });
-    }
-
-    // RBAC: Verify user is the admin
-    if (!group.adminId.equals(req.user!._id)) {
-      return res.status(403).json({ message: 'Only the admin can delete goals' });
-    }
+    const goal = req.goal!;
+    const group = req.group!;
 
     // Delete check-ins
     await CheckIn.deleteMany({ goalId });
@@ -209,13 +201,21 @@ export const deleteGoal = async (req: AuthRequest, res: Response) => {
 
 // @route PUT /api/goals/:goalId/checkins/:checkInId/note
 // @desc  Add or update a note on a check-in (only the owner can edit)
-export const updateCheckInNote = async (req: AuthRequest, res: Response) => {
+// Membership is enforced by requireGoalMember().
+export const updateCheckInNote = async (req: GroupRequest, res: Response) => {
   try {
     const { checkInId } = req.params;
     const { note } = req.body;
 
     const checkIn = await CheckIn.findById(checkInId);
     if (!checkIn) return res.status(404).json({ message: 'Check-in not found' });
+
+    // The check-in must belong to the goal in the path. Without this, the
+    // membership middleware could be satisfied with a goal from your own group
+    // while checkInId pointed at a check-in in someone else's.
+    if (!checkIn.goalId.equals(req.goal!._id as any)) {
+      return res.status(404).json({ message: 'Check-in not found' });
+    }
 
     if (!checkIn.userId.equals(req.user!._id as any)) {
       return res.status(403).json({ message: 'You can only edit your own notes' });
@@ -224,10 +224,7 @@ export const updateCheckInNote = async (req: AuthRequest, res: Response) => {
     checkIn.note = (note ?? '').toString().slice(0, 200); // cap at 200 chars
     await checkIn.save();
 
-    const goalData = await Goal.findById(checkIn.goalId);
-    if (goalData) {
-      io.to(goalData.groupId.toString()).emit('checkin_updated', checkIn.goalId.toString());
-    }
+    io.to(req.group!._id.toString()).emit('checkin_updated', checkIn.goalId.toString());
 
     res.status(200).json(checkIn);
   } catch (error: any) {
@@ -237,7 +234,8 @@ export const updateCheckInNote = async (req: AuthRequest, res: Response) => {
 
 // @route POST /api/goals/:goalId/checkins/:checkInId/react
 // @desc  Toggle a reaction emoji on a check-in
-export const reactToCheckIn = async (req: AuthRequest, res: Response) => {
+// Membership is enforced by requireGoalMember().
+export const reactToCheckIn = async (req: GroupRequest, res: Response) => {
   try {
     const { checkInId } = req.params;
     const { emoji } = req.body;
@@ -246,6 +244,14 @@ export const reactToCheckIn = async (req: AuthRequest, res: Response) => {
 
     const checkIn = await CheckIn.findById(checkInId);
     if (!checkIn) return res.status(404).json({ message: 'Check-in not found' });
+
+    // The check-in must belong to the goal in the path — see updateCheckInNote.
+    // This handler has no owner check by design (you react to other people's
+    // check-ins), so without this guard any member could react to any check-in
+    // in the database by pairing it with one of their own goal ids.
+    if (!checkIn.goalId.equals(req.goal!._id as any)) {
+      return res.status(404).json({ message: 'Check-in not found' });
+    }
 
     const userId = req.user!._id;
 
@@ -280,9 +286,16 @@ export const reactToCheckIn = async (req: AuthRequest, res: Response) => {
 };
 
 // @route GET /api/goals/group/:groupId/streak
-// @desc  Get the current user's consecutive check-in streak across ALL goals in the group
-//        A "streak day" = the user checked off at least 1 goal that day
-export const getGroupStreak = async (req: AuthRequest, res: Response) => {
+// @desc  The group's shared weekly streak.
+//        Check-ins are bucketed into Monday-starting weeks. For each goal and
+//        week the group's score is the MINIMUM number of completed check-ins
+//        across all current members, so the group only advances at the pace of
+//        its least active member. A goal passes a week when that score reaches
+//        its weeklyMinimum; its streak is the run of consecutive passing weeks
+//        counting back from this week. The group's streak is the minimum streak
+//        across all of its goals.
+//        The implementation lives in services/progressService.ts.
+export const getGroupStreak = async (req: GroupRequest, res: Response) => {
   try {
     const { groupId } = req.params;
 
@@ -291,95 +304,19 @@ export const getGroupStreak = async (req: AuthRequest, res: Response) => {
     const goalIds = goals.map(g => g._id);
 
     const checkIns = await CheckIn.find({ goalId: { $in: goalIds }, completed: true });
-    const group = await Group.findById(groupId);
-    const memberCount = group && group.members.length > 0 ? group.members.length : 1;
+    const group = req.group ?? (await Group.findById(groupId)) ?? null;
 
-    // Helper to get week start (Monday)
-    const getWeekStart = (d: Date) => {
-      const date = new Date(d);
-      const day = date.getDay();
-      const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
-      return new Date(date.setDate(diff)).toISOString().split('T')[0];
-    };
+    const weeklyGoalTicks = buildWeeklyGoalTicks(
+      buildGoalWeekUserTicks(checkIns),
+      group
+    );
+    const streak = computeGroupStreak(
+      goals.map(g => ({ _id: g._id, weeklyMinimum: g.weeklyMinimum || 0 })),
+      weeklyGoalTicks,
+      new Date()
+    );
 
-    // 1. Calculate ticks per user per week per goal
-    const goalWeekUserTicks = new Map<string, Map<string, Map<string, number>>>(); // goalId -> weekStart -> userId -> count
-    
-    for (const c of checkIns) {
-      const d = new Date(c.date);
-      const weekStart = getWeekStart(d);
-      const goalId = c.goalId.toString();
-      const userId = c.userId.toString();
-      
-      if (!goalWeekUserTicks.has(goalId)) goalWeekUserTicks.set(goalId, new Map());
-      const weekMap = goalWeekUserTicks.get(goalId)!;
-      
-      if (!weekMap.has(weekStart)) weekMap.set(weekStart, new Map());
-      const userMap = weekMap.get(weekStart)!;
-      
-      userMap.set(userId, (userMap.get(userId) || 0) + 1);
-    }
-
-    // 2. Aggregate into weekly group ticks per goal (minimum across all members)
-    const weeklyGoalTicks = new Map<string, Map<string, number>>(); // goalId -> { weekStart -> groupTicks }
-    
-    for (const [goalId, weekMap] of goalWeekUserTicks.entries()) {
-      weeklyGoalTicks.set(goalId, new Map());
-      for (const [weekStart, userMap] of weekMap.entries()) {
-        let groupTicks = 0;
-        if (group && group.members.length > 0) {
-          let minTicks = Infinity;
-          for (const memberId of group.members) {
-            const ticks = userMap.get(memberId.toString()) || 0;
-            if (ticks < minTicks) minTicks = ticks;
-          }
-          groupTicks = minTicks === Infinity ? 0 : minTicks;
-        } else {
-          let minTicks = Infinity;
-          for (const ticks of userMap.values()) {
-            if (ticks < minTicks) minTicks = ticks;
-          }
-          groupTicks = minTicks === Infinity ? 0 : minTicks;
-        }
-        weeklyGoalTicks.get(goalId)!.set(weekStart, groupTicks);
-      }
-    }
-
-    const today = new Date();
-    const currentWeekStart = getWeekStart(today);
-
-    // For each goal, compute its streak
-    let minStreak: number | null = null;
-
-    for (const goal of goals) {
-      const goalWeeks = weeklyGoalTicks.get(goal._id.toString()) || new Map();
-      const target = goal.weeklyMinimum || 0;
-      let streak = 0;
-
-      // Check current week
-      if ((goalWeeks.get(currentWeekStart) || 0) >= target) {
-        streak++;
-      }
-
-      // Check previous weeks
-      for (let i = 1; i < 520; i++) {
-        const pastWeek = new Date(today);
-        pastWeek.setDate(today.getDate() - i * 7);
-        const pastWeekStart = getWeekStart(pastWeek);
-        
-        if ((goalWeeks.get(pastWeekStart) || 0) >= target) {
-          streak++;
-        } else {
-          break;
-        }
-      }
-
-      if (minStreak === null || streak < minStreak) {
-        minStreak = streak;
-      }
-    }
-
-    res.status(200).json({ streak: minStreak || 0 });
+    res.status(200).json({ streak });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
