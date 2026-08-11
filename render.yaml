@@ -5,7 +5,13 @@ services:
     plan: free
     region: oregon
     rootDir: backend
-    buildCommand: npm install && npm run build
+    # --include=dev is required: Render (like npm generally) treats a
+    # NODE_ENV=production build environment as an implicit `--omit=dev`,
+    # which strips typescript and @types/* before `npm run build` (tsc)
+    # ever runs. NODE_ENV=production still applies correctly at runtime
+    # (see envVars below) — this only forces devDependencies to be
+    # present for the build step itself.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
