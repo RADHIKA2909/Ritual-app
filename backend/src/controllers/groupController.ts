@@ -7,11 +7,18 @@ import { CheckIn } from '../models/CheckIn';
 import { User } from '../models/User';
 import { randomBytes } from 'crypto';
 import { io } from '../index';
+import { DEMO_EMAIL } from '../services/demoSeedService';
 
 // @route POST /api/groups
 // @desc  Create a new group and add the user to it
 export const createGroup = async (req: AuthRequest, res: Response) => {
   try {
+    if (req.user!.email === DEMO_EMAIL) {
+      return res.status(403).json({
+        message: 'This is a shared demo account — explore the pre-loaded groups instead of creating new ones.',
+      });
+    }
+
     let { name } = req.body;
 
     if (!name) {
@@ -86,6 +93,12 @@ export const getMyGroups = async (req: AuthRequest, res: Response) => {
 // @desc  Join a group via invite code
 export const joinGroup = async (req: AuthRequest, res: Response) => {
   try {
+    if (req.user!.email === DEMO_EMAIL) {
+      return res.status(403).json({
+        message: 'This is a shared demo account — explore the pre-loaded groups instead of joining new ones.',
+      });
+    }
+
     const { inviteCode } = req.body;
 
     if (!inviteCode) {

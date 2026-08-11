@@ -28,6 +28,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver {
   String _userName = 'there';
+  bool _isDemoUser = false;
+  bool _demoBannerDismissed = false;
   bool _nudgeDismissed = false;
   bool _confettiPlayed = false;
   late ConfettiController _confettiController;
@@ -73,11 +75,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
+  // Must match backend/src/services/demoSeedService.ts's DEMO_EMAIL.
+  static const _demoEmail = 'demo@ritual.app';
+
   Future<void> _loadUserNameAndSocket() async {
     final prefs = await SharedPreferences.getInstance();
     final name = prefs.getString('user_name') ?? 'there';
+    final email = prefs.getString('user_email');
     final userId = prefs.getString('user_id');
-    if (mounted) setState(() => _userName = name.split(' ').first);
+    if (mounted) {
+      setState(() {
+        _userName = name.split(' ').first;
+        _isDemoUser = email == _demoEmail;
+      });
+    }
     if (userId != null) {
       // main() already bootstraps this; harmless to re-assert after a login.
       SocketService().initSocket();
@@ -203,6 +214,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           CustomScrollView(
             physics: const BouncingScrollPhysics(),
             slivers: [
+              // ── Demo account notice ──────────────────────────────────
+              if (_isDemoUser && !_demoBannerDismissed)
+                SliverToBoxAdapter(
+                  child: _DemoBanner(
+                    onDismiss: () => setState(() => _demoBannerDismissed = true),
+                  ),
+                ),
+
               // ── Group hero ────────────────────────────────────────────
               // The headline is OUR progress, not mine. One card per group,
               // swipeable when the user belongs to several.
@@ -1161,6 +1180,50 @@ class _StreakAtRiskBanner extends StatelessWidget {
         ),
         IconButton(
           icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white70),
+          onPressed: onDismiss,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        ),
+      ]),
+    );
+  }
+}
+
+// ── Demo account notice ─────────────────────────────────────────────────────
+class _DemoBanner extends StatelessWidget {
+  final VoidCallback onDismiss;
+
+  const _DemoBanner({required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      decoration: BoxDecoration(
+        color: cs.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.primary.withOpacity(0.25)),
+      ),
+      child: Row(children: [
+        const Text('\u{1F440}', style: TextStyle(fontSize: 20)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            "You're viewing a shared public demo — data resets daily.",
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 12.5,
+              color: cs.onSurface.withOpacity(0.8),
+            ),
+          ),
+        ),
+        IconButton(
+          icon: Icon(Icons.close_rounded, size: 18, color: cs.onSurface.withOpacity(0.5)),
           onPressed: onDismiss,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 32, minHeight: 32),

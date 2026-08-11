@@ -2,6 +2,23 @@ import { Response } from 'express';
 import { GroupRequest } from '../middlewares/membershipMiddleware';
 import { Message } from '../models/Message';
 import { io } from '../index';
+import { DEMO_EMAIL } from '../services/demoSeedService';
+
+// The demo account's chat is a public, unmoderated surface (anyone who opens
+// the demo can post to it, visible to every other visitor until the next
+// daily reset) — cap it to bound worst-case exposure. Single account, single
+// instance, so a plain in-memory sliding window is enough; no new dependency.
+const DEMO_MESSAGE_WINDOW_MS = 60 * 60 * 1000;
+const DEMO_MESSAGE_LIMIT = 20;
+let demoMessageTimestamps: number[] = [];
+
+function demoRateLimitExceeded(): boolean {
+  const now = Date.now();
+  demoMessageTimestamps = demoMessageTimestamps.filter((t) => now - t < DEMO_MESSAGE_WINDOW_MS);
+  if (demoMessageTimestamps.length >= DEMO_MESSAGE_LIMIT) return true;
+  demoMessageTimestamps.push(now);
+  return false;
+}
 
 // @route GET /api/groups/:id/messages
 // @desc  Get last 100 messages for a group (members only)
@@ -31,6 +48,10 @@ export const sendMessage = async (req: GroupRequest, res: Response) => {
 
     if (!text?.trim()) {
       return res.status(400).json({ message: 'Message cannot be empty' });
+    }
+
+    if (req.user!.email === DEMO_EMAIL && demoRateLimitExceeded()) {
+      return res.status(429).json({ message: 'Demo chat is rate-limited — try again later.' });
     }
 
     const group = req.group!;

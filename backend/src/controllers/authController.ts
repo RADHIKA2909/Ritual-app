@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
 import admin from '../config/firebase';
+import { ensureDemoData } from '../services/demoSeedService';
 
 // ── Google / Firebase Auth ────────────────────────────────────────────────────
 // @route POST /api/auth/google
@@ -116,6 +117,45 @@ export const mockLogin = async (req: Request, res: Response) => {
       token,
     });
   } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ── Demo Login ─────────────────────────────────────────────────────────────
+// @route POST /api/auth/demo-login
+// @desc  Log in as the shared, public demo account. Its groups/check-ins are
+//        regenerated on the fly (once per calendar day, on the first login of
+//        that day) so the trailing history always covers "the last ~3 months"
+//        relative to whenever someone actually opens the app. Deliberately
+//        NOT gated by NODE_ENV — unlike mockLogin, this is meant to work on
+//        the live production deployment; that's the whole point.
+export const demoLogin = async (req: Request, res: Response) => {
+  try {
+    const TIMEOUT_MS = 15000;
+    const user = await Promise.race([
+      ensureDemoData(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('DEMO_TIMEOUT')), TIMEOUT_MS)
+      ),
+    ]);
+
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET || 'dev_secret',
+      { expiresIn: '30d' }
+    );
+
+    return res.status(200).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      profileImage: user.profileImage,
+      token,
+    });
+  } catch (error: any) {
+    if (error.message === 'DEMO_TIMEOUT') {
+      return res.status(503).json({ message: 'Demo is warming up, please try again in a moment' });
+    }
     return res.status(500).json({ message: error.message });
   }
 };

@@ -54,6 +54,23 @@ class AuthNotifier extends AsyncNotifier<Map<String, dynamic>?> {
     });
   }
 
+  // ── Demo Login (shared public account, pre-loaded with ~3 months of data) ───
+  Future<void> loginAsDemo() async {
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() async {
+      final response = await ApiClient.instance.post('/auth/demo-login');
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('jwt_token', response.data['token']);
+      await prefs.setString('user_id', response.data['_id']);
+      await prefs.setString('user_name', response.data['name'] ?? '');
+      await prefs.setString('user_email', response.data['email'] ?? '');
+      await prefs.setString('user_photo', response.data['profileImage'] ?? '');
+
+      return response.data as Map<String, dynamic>;
+    });
+  }
+
   // ── Mock Login (dev fallback, remove in production) ─────────────────────────
   Future<void> mockLogin(String name, String email) async {
     state = const AsyncValue.loading();

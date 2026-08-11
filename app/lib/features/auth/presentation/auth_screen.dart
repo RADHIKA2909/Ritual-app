@@ -106,6 +106,20 @@ class AuthScreen extends ConsumerWidget {
                       .fadeIn(duration: 500.ms)
                       .slideY(begin: 0.4, end: 0, curve: Curves.easeOutCubic),
 
+                  const SizedBox(height: 12),
+
+                  // Demo login — a shared account pre-loaded with ~3 months
+                  // of groups/check-ins, so anyone can see how the app looks
+                  // without creating an account. Always visible (unlike Dev
+                  // Login below), since it's meant to work in production.
+                  _DemoLoginButton(
+                    isLoading: isLoading,
+                    onTap: () => ref.read(authProvider.notifier).loginAsDemo(),
+                  )
+                      .animate(delay: 680.ms)
+                      .fadeIn(duration: 500.ms)
+                      .slideY(begin: 0.4, end: 0, curve: Curves.easeOutCubic),
+
                   const SizedBox(height: 16),
 
                   // Dev login
@@ -386,6 +400,81 @@ class _GoogleSignInButtonState extends State<_GoogleSignInButton> {
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                         color: cs.onSurface,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Demo Login Button ───────────────────────────────────────────────────────
+class _DemoLoginButton extends StatefulWidget {
+  final bool isLoading;
+  final VoidCallback onTap;
+
+  const _DemoLoginButton({required this.isLoading, required this.onTap});
+
+  @override
+  State<_DemoLoginButton> createState() => _DemoLoginButtonState();
+}
+
+class _DemoLoginButtonState extends State<_DemoLoginButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final onSurface = cs.onSurface;
+
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) {
+        setState(() => _pressed = false);
+        if (!widget.isLoading) widget.onTap();
+      },
+      onTapCancel: () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+          decoration: BoxDecoration(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: onSurface.withOpacity(_pressed ? 0.35 : 0.18),
+              width: 1.5,
+            ),
+          ),
+          child: widget.isLoading
+              ? Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.visibility_outlined,
+                        size: 18, color: onSurface.withOpacity(0.7)),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Continue as Demo',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: onSurface.withOpacity(0.75),
                         letterSpacing: -0.2,
                       ),
                     ),
