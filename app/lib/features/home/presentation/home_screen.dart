@@ -561,7 +561,14 @@ class _GroupHeroCard extends StatelessWidget {
       allDone: allDone,
       onSettings: onSettings,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        // .start, not .center: the settings gear is an absolutely-positioned
+        // overlay pinned to the card's top-right (see _HeroShell), sharing
+        // this Row's coordinate space. Centering made the ring's position
+        // depend on the text column's height — on a short card (e.g. no
+        // streak pill to show) the row shrinks and the vertically-centered
+        // ring rides up into the gear icon. Top-aligning plus a fixed
+        // clearance on the ring column keeps it clear of the icon always.
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             child: Column(
@@ -645,6 +652,10 @@ class _GroupHeroCard extends StatelessWidget {
             Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Clears the gear icon's footprint (18px icon + 8px padding
+                // each side = 34px) plus a small gap, regardless of how tall
+                // the text column ends up being.
+                const SizedBox(height: 40),
                 _CompletionRing(
                   progress: ringDone / ringTotal,
                   done: ringDone,
