@@ -14,7 +14,7 @@ class SocketService {
   // flutter build web --dart-define=BACKEND_URL=https://your-api.com
   static const String _baseUrl = String.fromEnvironment(
     'BACKEND_URL',
-    defaultValue: 'https://ritual-backend.onrender.com',
+    defaultValue: 'https://ritual-backend-3nn5.onrender.com',
   );
 
   void initSocket() {
