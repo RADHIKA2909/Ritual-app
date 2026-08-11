@@ -251,15 +251,30 @@ class _GoalCardState extends ConsumerState<GoalCard> {
             letterSpacing: 0.3,
           )),
       const SizedBox(height: 8),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: List.generate(7, (i) {
+      // The 7 dots need ~36px each at full (checked) size — spaceBetween
+      // can't shrink them, so a narrow browser window would overflow. Below
+      // that width, scroll horizontally instead; normal-width cards are
+      // unaffected since spaceBetween still renders exactly as before.
+      LayoutBuilder(builder: (context, constraints) {
+        final dots = List.generate(7, (i) {
           final d = monday.add(Duration(days: i));
           final dOnly = DateTime(d.year, d.month, d.day);
           return _buildDayDot(
               context, dOnly, checkIns, dayLabels[i], isMe, userIdToMatch);
-        }),
-      ),
+        });
+        const naturalWidth = 7 * 36.0 + 6 * 4.0;
+        if (constraints.maxWidth >= naturalWidth) {
+          return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: dots);
+        }
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final dot in dots) Padding(padding: const EdgeInsets.only(right: 8), child: dot),
+            ],
+          ),
+        );
+      }),
       if (todayCheckIn != null) ...[
         _buildReactionStrip(context, todayCheckIn, isMe),
         _buildNoteRow(context, todayCheckIn, isMe),
@@ -448,6 +463,8 @@ class _GoalCardState extends ConsumerState<GoalCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                 Text(widget.goalName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w700,
@@ -505,9 +522,9 @@ class _GoalCardState extends ConsumerState<GoalCard> {
                   builder: (_) => AlertDialog(
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(20)),
-                    title: const Text('Delete Goal?'),
+                    title: const Text('Delete Ritual?'),
                     content: const Text(
-                        'This will permanently delete this goal and all check-ins.'),
+                        'This will permanently delete this ritual and all check-ins.'),
                     actions: [
                       TextButton(
                           onPressed: () => Navigator.pop(context),
@@ -520,7 +537,7 @@ class _GoalCardState extends ConsumerState<GoalCard> {
                           Navigator.pop(context);
                         },
                         child: const Text('Delete',
-                            style: TextStyle(color: Colors.red)),
+                            style: TextStyle(color: AppTheme.danger)),
                       ),
                     ],
                   ),
@@ -549,7 +566,7 @@ class _GoalCardState extends ConsumerState<GoalCard> {
           Row(children: [
             Expanded(
               child: Text(
-                StatusStyle.goalHint(goal),
+                StatusStyle.goalHint(goal, isSolo: widget.isSolo),
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,

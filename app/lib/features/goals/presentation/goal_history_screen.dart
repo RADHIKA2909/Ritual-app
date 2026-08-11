@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/utils/plurals.dart';
 
 class GoalHistoryScreen extends ConsumerStatefulWidget {
   final String goalId;
@@ -192,7 +193,7 @@ class _GoalHistoryScreenState extends ConsumerState<GoalHistoryScreen> {
     return Row(children: [
       _StatChip(
         label: 'This Period',
-        value: '$checkedDays days',
+        value: count(checkedDays, 'day'),
         icon: '📅',
         cs: cs,
       ),
@@ -205,8 +206,11 @@ class _GoalHistoryScreenState extends ConsumerState<GoalHistoryScreen> {
       ),
       const SizedBox(width: 10),
       _StatChip(
-        label: 'Streak',
-        value: '$streak days',
+        // "Day streak" to disambiguate from the WEEKLY group streak shown
+        // everywhere else in the app — this one counts consecutive days, not
+        // consecutive weeks, and the two numbers will legitimately differ.
+        label: 'Day Streak',
+        value: count(streak, 'day'),
         icon: '🔥',
         cs: cs,
       ),
@@ -224,7 +228,14 @@ class _GoalHistoryScreenState extends ConsumerState<GoalHistoryScreen> {
     const cellSize = 16.0;
     const cellGap = 3.0;
 
-    return Column(
+    // Fixed width: _totalWeeks * (cellSize + cellGap) — on a narrow browser
+    // window this can exceed the available space, which a plain Column/Row
+    // can't shrink to fit. Scrolling horizontally avoids a hard overflow
+    // without changing anything at normal widths.
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const ClampingScrollPhysics(),
+      child: Column(
       children: List.generate(7, (row) {
         // row 0 = Monday, row 6 = Sunday
         return Padding(
@@ -261,6 +272,7 @@ class _GoalHistoryScreenState extends ConsumerState<GoalHistoryScreen> {
           ),
         );
       }),
+      ),
     );
   }
 
@@ -280,12 +292,22 @@ class _GoalHistoryScreenState extends ConsumerState<GoalHistoryScreen> {
         lastMonth = monthKey;
         labels.add(SizedBox(
           width: cellSize + cellGap,
-          child: Text(
-            monthName,
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w600,
-              color: cs.onSurface.withOpacity(0.4),
+          // clipBehavior lets the label spill into the next (empty) column
+          // rather than clipping mid-character at larger text scales — the
+          // box itself must stay exactly cellSize+cellGap wide to keep the
+          // month labels aligned with the heatmap's week columns below.
+          child: OverflowBox(
+            maxWidth: (cellSize + cellGap) * 2,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              monthName,
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+                color: cs.onSurface.withOpacity(0.4),
+              ),
             ),
           ),
         ));
@@ -296,7 +318,11 @@ class _GoalHistoryScreenState extends ConsumerState<GoalHistoryScreen> {
 
     return Padding(
       padding: const EdgeInsets.only(top: 6),
-      child: Row(children: labels),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const ClampingScrollPhysics(),
+        child: Row(children: labels),
+      ),
     );
   }
 

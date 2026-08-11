@@ -47,7 +47,7 @@ class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create goal: $e')),
+          SnackBar(content: Text('Failed to create ritual: $e')),
         );
       }
     }
@@ -65,7 +65,7 @@ class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           // ── Title ───────────────────────────────────────────────────
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('New Goal',
+            const Text('New Ritual',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
             GestureDetector(
               onTap: () => Navigator.pop(context),
@@ -124,7 +124,7 @@ class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
             controller: _nameController,
             autofocus: false,
             decoration: InputDecoration(
-              hintText: 'Goal name  e.g. Hit the gym',
+              hintText: 'Ritual name  e.g. Hit the gym',
               prefixIcon: Padding(
                 padding: const EdgeInsets.only(left: 14, right: 10),
                 child: Text(_selectedEmoji,
@@ -189,7 +189,7 @@ class _CreateGoalDialogState extends ConsumerState<CreateGoalDialog> {
                       width: 20, height: 20,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white))
-                  : const Text('Create Goal',
+                  : const Text('Create Ritual',
                       style: TextStyle(
                           fontWeight: FontWeight.w700, fontSize: 15)),
             ),

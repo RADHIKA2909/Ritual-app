@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../domain/my_analytics_provider.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/plurals.dart';
 
 class MyAnalyticsScreen extends ConsumerStatefulWidget {
   const MyAnalyticsScreen({super.key});
@@ -284,9 +286,9 @@ class _MyAnalyticsScreenState extends ConsumerState<MyAnalyticsScreen> {
                       _StatCard(
                         icon: '✅',
                         value: totalCompletions.toString(),
-                        label: 'Completions',
+                        label: plural(totalCompletions, 'Completion'),
                         subLabel: 'of $totalExpected needed',
-                        color: const Color(0xFF48BB78),
+                        color: AppTheme.success,
                         cs: cs,
                         isDark: isDark,
                       ),
@@ -294,9 +296,9 @@ class _MyAnalyticsScreenState extends ConsumerState<MyAnalyticsScreen> {
                       _StatCard(
                         icon: '📅',
                         value: activeDays.toString(),
-                        label: 'Active Days',
+                        label: plural(activeDays, 'Active Day'),
                         subLabel: 'checked in ≥1',
-                        color: const Color(0xFF4299E1),
+                        color: AppTheme.groupAccents[4],
                         cs: cs,
                         isDark: isDark,
                       ),
@@ -305,8 +307,8 @@ class _MyAnalyticsScreenState extends ConsumerState<MyAnalyticsScreen> {
                         icon: '🔥',
                         value: streak.toString(),
                         label: 'Wk Streak',
-                        subLabel: 'consecutive weeks',
-                        color: const Color(0xFFED8936),
+                        subLabel: plural(streak, 'consecutive week'),
+                        color: AppTheme.warning,
                         cs: cs,
                         isDark: isDark,
                       ),
@@ -342,13 +344,22 @@ class _MyAnalyticsScreenState extends ConsumerState<MyAnalyticsScreen> {
                         .fadeIn(duration: 400.ms),
 
                     const SizedBox(height: 12),
-                    GridView.count(
-                      crossAxisCount: 7,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 6,
-                      crossAxisSpacing: 6,
-                      children: dayBoxes,
+                    // Capped width — see the matching comment in
+                    // group_analytics_screen.dart: without it, this grid
+                    // stretches to whatever the browser window is wide.
+                    Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        child: GridView.count(
+                          crossAxisCount: 7,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          childAspectRatio: 1,
+                          mainAxisSpacing: 6,
+                          crossAxisSpacing: 6,
+                          children: dayBoxes,
+                        ),
+                      ),
                     )
                         .animate(delay: 150.ms)
                         .fadeIn(duration: 400.ms),
@@ -435,7 +446,7 @@ class _MyAnalyticsScreenState extends ConsumerState<MyAnalyticsScreen> {
                                       BorderRadius.circular(18),
                                   border: Border.all(
                                       color: met
-                                          ? const Color(0xFF48BB78)
+                                          ? AppTheme.success
                                               .withOpacity(0.3)
                                           : cs.onSurface
                                               .withOpacity(0.07)),
@@ -483,8 +494,7 @@ class _MyAnalyticsScreenState extends ConsumerState<MyAnalyticsScreen> {
                                                 .onSurface
                                                 .withOpacity(0.08),
                                             color: met
-                                                ? const Color(
-                                                    0xFF48BB78)
+                                                ? AppTheme.success
                                                 : cs.primary,
                                           ),
                                         ),
@@ -502,7 +512,7 @@ class _MyAnalyticsScreenState extends ConsumerState<MyAnalyticsScreen> {
                                           fontSize: 22,
                                           fontWeight: FontWeight.w900,
                                           color: met
-                                              ? const Color(0xFF48BB78)
+                                              ? AppTheme.success
                                               : cs.onSurface),
                                     ),
                                     Text(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/socket_service.dart';
+import '../../../core/utils/plurals.dart';
 
 final _feedProvider = FutureProvider.family<List<dynamic>, String>((ref, groupId) async {
   final response = await ApiClient.instance.get('/groups/$groupId/feed');
@@ -45,11 +46,12 @@ class _GroupFeedScreenState extends ConsumerState<GroupFeedScreen> {
     final itemDay = DateTime(date.year, date.month, date.day);
     final diff = today.difference(itemDay).inDays;
 
-    if (diff == 0) return 'Today';
+    // A future-dated check-in (clock skew between devices) shouldn't render
+    // as "-1 days ago" — treat anything non-positive as "Today".
+    if (diff <= 0) return 'Today';
     if (diff == 1) return 'Yesterday';
-    if (diff < 7) return '$diff days ago';
-    if (diff < 14) return '1 week ago';
-    return '${(diff / 7).floor()} weeks ago';
+    if (diff < 7) return '${count(diff, 'day')} ago';
+    return '${count((diff / 7).floor(), 'week')} ago';
   }
 
   @override

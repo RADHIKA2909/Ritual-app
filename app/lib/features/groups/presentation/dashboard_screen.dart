@@ -7,6 +7,8 @@ import 'package:shimmer/shimmer.dart';
 import '../../../core/network/socket_service.dart';
 import '../domain/group_provider.dart';
 import '../../../core/theme/theme_provider.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/plurals.dart';
 import 'widgets/join_group_dialog.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
@@ -140,7 +142,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           data: (groups) => Text(
                             groups.isEmpty
                                 ? 'No groups yet'
-                                : '${groups.length} active ${groups.length == 1 ? 'group' : 'groups'}',
+                                : '${count(groups.length, 'active group')}',
                             style: TextStyle(
                               fontSize: 14,
                               color: cs.onSurface.withOpacity(0.45),
@@ -206,15 +208,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     );
                   }
 
-                  const groupAccents = [
-                    Color(0xFF7B6FE8),
-                    Color(0xFF48BB78),
-                    Color(0xFFED8936),
-                    Color(0xFFE8A838),
-                    Color(0xFF4299E1),
-                    Color(0xFFED64A6),
-                  ];
-
                   return ListView.builder(
                     padding: const EdgeInsets.fromLTRB(20, 4, 20, 100),
                     itemCount: groups.length,
@@ -224,7 +217,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           (group['members'] as List<dynamic>?) ?? [];
                       final goalCount =
                           (group['goalCount'] as num?)?.toInt() ?? 0;
-                      final accent = groupAccents[i % groupAccents.length];
+                      // Was a verbatim duplicate of AppTheme.groupAccents.
+                      final accent = AppTheme.accentForIndex(i);
 
                       final otherMembers = members.where((m) {
                         final id =
@@ -233,7 +227,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       }).toList();
 
                       String memberSummary;
-                      if (members.length == 1) {
+                      if (members.length <= 1 || otherMembers.isEmpty) {
+                        // Also covers a malformed/empty members list, and the
+                        // brief window before _currentUserId has loaded where
+                        // otherMembers can't be resolved yet — otherMembers[0]
+                        // below would otherwise throw RangeError.
                         memberSummary = 'Just you';
                       } else if (otherMembers.length == 1) {
                         final name = otherMembers[0] is Map
@@ -441,7 +439,7 @@ class _GroupCardState extends State<_GroupCard> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        '${widget.goalCount} ${widget.goalCount == 1 ? 'goal' : 'goals'}',
+                        count(widget.goalCount, 'ritual'),
                         style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
@@ -523,7 +521,7 @@ class _EmptyGroupsView extends StatelessWidget {
                 .slideY(begin: 0.2, end: 0),
             const SizedBox(height: 10),
             Text(
-              'Invite friends, family, or teammates.\nSet shared goals and build habits together.',
+              'Invite friends, family, or teammates.\nSet shared rituals and build habits together.',
               textAlign: TextAlign.center,
               style: TextStyle(
                   fontSize: 14,

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/socket_service.dart';
 import '../../../core/widgets/user_avatar.dart';
+import '../../../core/utils/plurals.dart' as plurals;
 
 // Fetches goals + all their check-ins for a group
 final _leaderboardDataProvider =
@@ -156,10 +157,10 @@ class _GroupLeaderboardScreenState
             controller: _tabController,
             children: [
               _buildList(cs, weeklyTotals,
-                  subtitle: (count) => '$count check-in${count == 1 ? '' : 's'} this week',
+                  subtitle: (n) => '${plurals.count(n, 'check-in')} this week',
                   maxValue: maxGoalCheckins > 0 ? maxGoalCheckins : 1),
               _buildList(cs, allTimeTotals,
-                  subtitle: (count) => '$count total check-ins',
+                  subtitle: (n) => '${plurals.count(n, 'check-in')} total',
                   maxValue: allTimeTotals.values.fold(0, (a, b) => a > b ? a : b)),
             ],
           );

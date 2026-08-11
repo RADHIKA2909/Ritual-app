@@ -67,7 +67,7 @@ class _EditGoalDialogState extends ConsumerState<EditGoalDialog> {
       setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update goal: $e')),
+          SnackBar(content: Text('Failed to update ritual: $e')),
         );
       }
     }
@@ -85,7 +85,7 @@ class _EditGoalDialogState extends ConsumerState<EditGoalDialog> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           // ── Title ───────────────────────────────────────────────────
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('Edit Goal',
+            const Text('Edit Ritual',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
             GestureDetector(
               onTap: () => Navigator.pop(context),
@@ -141,7 +141,7 @@ class _EditGoalDialogState extends ConsumerState<EditGoalDialog> {
           TextField(
             controller: _nameController,
             decoration: InputDecoration(
-              hintText: 'Goal name  e.g. Hit the gym',
+              hintText: 'Ritual name  e.g. Hit the gym',
               prefixIcon: Padding(
                 padding: const EdgeInsets.only(left: 14, right: 10),
                 child: Text(_selectedEmoji,

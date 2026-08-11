@@ -89,6 +89,20 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
           {'_id': m.userId, 'name': m.name, 'profileImage': m.profileImage},
       ];
 
+  /// "Just you" / "You & Radhika" / "You, Radhika +3" — same idiom used on the
+  /// Groups list. Replaces a plain `.join(' & ')` over every member, which
+  /// both overflowed with 3+ people and read oddly ("Radhika & Aarav & Priya").
+  String _memberSummary(List<Map<String, dynamic>> members, bool isSolo) {
+    if (isSolo || members.length <= 1) return 'Just you';
+    final others = members
+        .where((m) => m['_id']?.toString() != currentUserId)
+        .toList();
+    if (others.isEmpty) return 'Just you';
+    final first = (others.first['name'] as String? ?? 'Someone').split(' ').first;
+    if (others.length == 1) return 'You & $first';
+    return 'You, $first +${others.length - 1}';
+  }
+
   void _showSettings(GroupProgress progress) {
     final isAdmin = progress.isAdmin;
     final inviteCode = progress.inviteCode;
@@ -103,7 +117,12 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // isScrollControlled lifts the sheet's height cap, but does not add
+          // scrolling on its own — with enough members the invite code block,
+          // the member list and the delete/leave button could overflow past
+          // the bottom of the screen and become unreachable.
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Center(
               child: Container(
                 width: 36, height: 4,
@@ -167,21 +186,21 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Row(children: [
-                  CircleAvatar(
+                  // Shared UserAvatar rather than a hand-rolled CircleAvatar:
+                  // that version threw on an empty name and never showed a
+                  // profile photo even though one was available here.
+                  UserAvatar(
+                    name: (member['name'] as String?) ?? '',
+                    profileImage: member['profileImage'] as String?,
                     radius: 18,
-                    backgroundColor:
-                        Theme.of(ctx).colorScheme.primary.withOpacity(0.2),
-                    child: Text(
-                      (member['name'] as String)[0].toUpperCase(),
-                      style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Theme.of(ctx).colorScheme.primary),
-                    ),
+                    colorScheme: Theme.of(ctx).colorScheme,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(member['name'] + (isMe ? ' (You)' : ''),
+                      Text('${member['name']}${isMe ? ' (You)' : ''}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                       if (isMemberAdmin)
                         Text('Admin',
@@ -193,7 +212,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                   if (isAdmin && !isMemberAdmin)
                     IconButton(
                       icon: const Icon(Icons.person_remove_rounded,
-                          color: Colors.redAccent, size: 20),
+                          color: AppTheme.danger, size: 20),
                       onPressed: () {
                         _removeMember(member['_id']);
                         Navigator.pop(ctx);
@@ -217,7 +236,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                           borderRadius: BorderRadius.circular(20)),
                       title: const Text('Delete Group?'),
                       content: const Text(
-                          'This will permanently delete the group and all its goals.'),
+                          'This will permanently delete the group and all its rituals.'),
                       actions: [
                         TextButton(
                             onPressed: () => Navigator.pop(context),
@@ -231,7 +250,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                             context.go('/dashboard');
                           },
                           child: const Text('Delete',
-                              style: TextStyle(color: Colors.red)),
+                              style: TextStyle(color: AppTheme.danger)),
                         ),
                       ],
                     ),
@@ -251,6 +270,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                 },
               ),
           ]),
+          ),
         ),
       ),
     );
@@ -345,42 +365,75 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Text(groupName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -1)),
                     const SizedBox(height: 8),
                     Row(children: [
-                      // Member avatars
-                      ...members.take(3).toList().asMap().entries.map((e) {
-                        final m = e.value;
-                        return Transform.translate(
-                          offset: Offset(-e.key * 8.0, 0),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: cs.surface, width: 1.5),
-                            ),
-                            child: ClipOval(
-                              child: UserAvatar(
-                                name: m['name'] as String,
-                                profileImage: m['profileImage'] as String?,
-                                radius: 13,
-                                colorScheme: cs,
+                      // Member avatars, with a +N badge past the first 3.
+                      SizedBox(
+                        // Reserve room for translated overlap + the +N badge,
+                        // so the row's width is fixed regardless of headcount.
+                        width: (members.length.clamp(0, 3) * 18.0) + 8 +
+                            (members.length > 3 ? 22 : 0),
+                        height: 26,
+                        child: Stack(children: [
+                          ...members.take(3).toList().asMap().entries.map((e) {
+                            final m = e.value;
+                            return Positioned(
+                              left: e.key * 18.0,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: cs.surface, width: 1.5),
+                                ),
+                                child: ClipOval(
+                                  child: UserAvatar(
+                                    name: m['name'] as String,
+                                    profileImage: m['profileImage'] as String?,
+                                    radius: 13,
+                                    colorScheme: cs,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                          if (members.length > 3)
+                            Positioned(
+                              left: members.take(3).length * 18.0,
+                              child: Container(
+                                width: 26,
+                                height: 26,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: cs.surfaceVariant,
+                                  border: Border.all(color: cs.surface, width: 1.5),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    '+${members.length - 3}',
+                                    style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                        color: cs.onSurface.withOpacity(0.6)),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      }),
-                      SizedBox(width: members.length > 1 ? 4.0 : 0),
-                      Text(
-                        progress.isSolo
-                            ? 'Just you'
-                            : members
-                                .map((m) => (m['name'] as String).split(' ').first)
-                                .join(' & '),
-                        style: TextStyle(
-                            fontSize: 13,
-                            color: cs.onSurface.withOpacity(0.5),
-                            fontWeight: FontWeight.w500),
+                        ]),
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          _memberSummary(members, progress.isSolo),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: cs.onSurface.withOpacity(0.5),
+                              fontWeight: FontWeight.w500),
+                        ),
                       ),
                       const Spacer(),
                       StreakPill(progress: progress, compact: true),
@@ -486,7 +539,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                 builder: (_) => CreateGoalDialog(groupId: widget.groupId),
               ),
               icon: const Icon(Icons.add_rounded),
-              label: const Text('Add Goal',
+              label: const Text('Add Ritual',
                   style: TextStyle(fontWeight: FontWeight.w700)),
             )
           : null,
@@ -557,16 +610,16 @@ class _DangerButton extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
-          color: Colors.red.withOpacity(0.08),
+          color: AppTheme.danger.withOpacity(0.08),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.red.withOpacity(0.2)),
+          border: Border.all(color: AppTheme.danger.withOpacity(0.2)),
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, color: Colors.redAccent, size: 18),
+          Icon(icon, color: AppTheme.danger, size: 18),
           const SizedBox(width: 8),
           Text(label,
               style: const TextStyle(
-                  color: Colors.redAccent, fontWeight: FontWeight.w600)),
+                  color: AppTheme.danger, fontWeight: FontWeight.w600)),
         ]),
       ),
     );
@@ -640,7 +693,11 @@ class _GroupSummaryHeader extends StatelessWidget {
                   child: _SummaryStat(
                     label: 'This week',
                     value: '$keptCommitments/$totalCommitments',
-                    caption: 'commitments kept',
+                    // Sums each member's own capped check-ins — a different
+                    // aggregation from the goal cards below, which show the
+                    // GROUP's weakest-link score. Disclosed so the two numbers
+                    // on this card can't be read as the same kind of total.
+                    caption: 'commitments kept · per member',
                     color: cs.primary,
                   ),
                 ),
@@ -748,6 +805,8 @@ class _SummaryStat extends StatelessWidget {
         ),
         Text(
           caption,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w500,

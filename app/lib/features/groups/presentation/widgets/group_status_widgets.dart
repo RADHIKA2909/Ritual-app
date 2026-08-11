@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/status_style.dart';
+import '../../../../core/utils/plurals.dart';
 import '../../../../core/widgets/user_avatar.dart';
 import '../../domain/models/group_progress.dart';
 
@@ -11,7 +12,7 @@ import '../../domain/models/group_progress.dart';
 // same everywhere. All copy comes from StatusStyle.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// 🔥 4 week streak — amber when safe, amber-orange when it needs attention.
+/// 🔥 4-week streak — amber when safe, amber-orange when it needs attention.
 ///
 /// Streaks are a group-level moment, so this is deliberately NOT rendered on
 /// every goal card; it belongs on group headers and hero cards.
@@ -48,8 +49,8 @@ class StreakPill extends StatelessWidget {
           const SizedBox(width: 5),
           Text(
             compact
-                ? '${progress.groupStreak} wk'
-                : '${progress.groupStreak} week streak',
+                ? weekStreakShort(progress.groupStreak)
+                : weekStreakLabel(progress.groupStreak),
             style: TextStyle(
               color: style.color,
               fontSize: compact ? 11 : 12.5,
@@ -184,12 +185,22 @@ class MemberStatusRow extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      m.displayName,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: cs.onSurface.withOpacity(m.completedToday ? 0.7 : 0.4),
+                    // Capped to the avatar's width so a long name can't widen
+                    // this cell and break the row's alignment — it sits inside
+                    // an unbounded horizontal scroller, so without a cap the
+                    // Text would simply render at its full intrinsic width.
+                    SizedBox(
+                      width: avatarRadius * 2.4,
+                      child: Text(
+                        m.displayName,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: cs.onSurface.withOpacity(m.completedToday ? 0.7 : 0.4),
+                        ),
                       ),
                     ),
                   ],

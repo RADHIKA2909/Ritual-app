@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_provider.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
@@ -114,7 +115,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               Text('Profile updated!',
                   style: TextStyle(fontWeight: FontWeight.w600)),
             ]),
-            backgroundColor: const Color(0xFF48BB78),
+            backgroundColor: AppTheme.success,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12)),
@@ -127,7 +128,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to save: $e'),
-            backgroundColor: Colors.redAccent,
+            backgroundColor: AppTheme.danger,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12)),
@@ -571,7 +572,7 @@ class _DangerSection extends ConsumerWidget {
                       if (context.mounted) context.go('/auth');
                     },
                     child: const Text('Sign Out',
-                        style: TextStyle(color: Colors.redAccent)),
+                        style: TextStyle(color: AppTheme.danger)),
                   ),
                 ],
               ),
@@ -581,24 +582,24 @@ class _DangerSection extends ConsumerWidget {
             padding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              color: Colors.red.withOpacity(0.06),
+              color: AppTheme.danger.withOpacity(0.06),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.red.withOpacity(0.15)),
+              border: Border.all(color: AppTheme.danger.withOpacity(0.15)),
             ),
             child: Row(children: [
               Icon(Icons.logout_rounded,
-                  color: Colors.redAccent, size: 18),
+                  color: AppTheme.danger, size: 18),
               const SizedBox(width: 12),
               const Text(
                 'Sign Out',
                 style: TextStyle(
-                    color: Colors.redAccent,
+                    color: AppTheme.danger,
                     fontWeight: FontWeight.w700,
                     fontSize: 15),
               ),
               const Spacer(),
               Icon(Icons.chevron_right_rounded,
-                  color: Colors.redAccent.withOpacity(0.4), size: 18),
+                  color: AppTheme.danger.withOpacity(0.4), size: 18),
             ]),
           ),
         ),

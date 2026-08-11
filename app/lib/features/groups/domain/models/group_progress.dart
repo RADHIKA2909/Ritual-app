@@ -16,13 +16,16 @@ enum GoalStatus {
   /// The group has met the weekly minimum.
   completed,
 
-  /// Progress made and enough days left to finish comfortably.
+  /// At or ahead of the pace needed to finish the week.
   onTrack,
 
-  /// No slack left — every remaining day must count, or it's already missed.
+  /// Behind the pace needed, but still reachable with days to spare.
+  needsAttention,
+
+  /// Needs every remaining day, or can no longer be reached at all.
   atRisk,
 
-  /// Nothing logged yet this week, but there's still room.
+  /// Nothing logged yet this week, and still on pace.
   incomplete;
 
   static GoalStatus fromWire(String? value) {
@@ -31,6 +34,8 @@ enum GoalStatus {
         return GoalStatus.completed;
       case 'on_track':
         return GoalStatus.onTrack;
+      case 'needs_attention':
+        return GoalStatus.needsAttention;
       case 'at_risk':
         return GoalStatus.atRisk;
       case 'incomplete':
@@ -162,6 +167,11 @@ class GroupGoalProgress {
   final int groupTarget;
   final double groupProgress;
   final GoalStatus status;
+
+  /// The weekly minimum can no longer be reached, even with a perfect finish.
+  /// Distinguishes "tight but doable" from "next week is a fresh start".
+  final bool unreachableThisWeek;
+
   final int goalStreak;
 
   final int currentUserCount;
@@ -183,6 +193,7 @@ class GroupGoalProgress {
     required this.groupTarget,
     required this.groupProgress,
     required this.status,
+    required this.unreachableThisWeek,
     required this.goalStreak,
     required this.currentUserCount,
     required this.currentUserCompletedToday,
@@ -200,6 +211,7 @@ class GroupGoalProgress {
         groupTarget: _asInt(json['groupTarget']),
         groupProgress: _asDouble(json['groupProgress']).clamp(0.0, 1.0),
         status: GoalStatus.fromWire(json['status'] as String?),
+        unreachableThisWeek: json['unreachableThisWeek'] == true,
         goalStreak: _asInt(json['goalStreak']),
         currentUserCount: _asInt(json['currentUserCount']),
         currentUserCompletedToday: json['currentUserCompletedToday'] == true,
@@ -267,18 +279,33 @@ class GroupMemberProgress {
 
 class TodaySummary {
   final int membersDoneToday;
-  final int goalsNeedingEveryoneToday;
+
+  /// Rituals where at least one member still has to check in today.
+  final int goalsWaitingOnAnyoneToday;
+
+  /// Rituals where I'm done today but someone else isn't — the "waiting on
+  /// Radhika" state, as opposed to "we both still need to do this".
+  final int goalsWaitingOnOthersOnlyToday;
+
+  /// Rituals not yet weekly-complete where I haven't checked in today.
   final int goalsWaitingOnMeToday;
 
   const TodaySummary({
     required this.membersDoneToday,
-    required this.goalsNeedingEveryoneToday,
+    required this.goalsWaitingOnAnyoneToday,
+    required this.goalsWaitingOnOthersOnlyToday,
     required this.goalsWaitingOnMeToday,
   });
 
   factory TodaySummary.fromJson(Map<String, dynamic> json) => TodaySummary(
         membersDoneToday: _asInt(json['membersDoneToday']),
-        goalsNeedingEveryoneToday: _asInt(json['goalsNeedingEveryoneToday']),
+        // Falls back to the old (misnamed) field so a client running against an
+        // older backend still renders something sane.
+        goalsWaitingOnAnyoneToday: _asInt(
+          json['goalsWaitingOnAnyoneToday'] ?? json['goalsNeedingEveryoneToday'],
+        ),
+        goalsWaitingOnOthersOnlyToday:
+            _asInt(json['goalsWaitingOnOthersOnlyToday']),
         goalsWaitingOnMeToday: _asInt(json['goalsWaitingOnMeToday']),
       );
 }

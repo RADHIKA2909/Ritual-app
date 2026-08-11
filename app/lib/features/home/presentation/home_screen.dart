@@ -10,6 +10,7 @@ import '../../auth/domain/auth_provider.dart';
 import '../../../core/theme/theme_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/status_style.dart';
+import '../../../core/utils/plurals.dart';
 import '../../../core/network/socket_service.dart';
 import '../../../core/network/socket_events.dart';
 import '../../analytics/domain/my_analytics_provider.dart';
@@ -174,9 +175,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               _SettingsTile(
                 icon: Icons.logout_rounded,
                 label: 'Log Out',
-                iconBg: Colors.red.withOpacity(0.1),
-                iconColor: Colors.redAccent,
-                labelColor: Colors.redAccent,
+                iconBg: AppTheme.danger.withOpacity(0.1),
+                iconColor: AppTheme.danger,
+                labelColor: AppTheme.danger,
                 onTap: () {
                   Navigator.pop(ctx2);
                   ref2.read(authProvider.notifier).logout();
@@ -453,8 +454,12 @@ class _GroupHeroCarouselState extends State<_GroupHeroCarousel> {
     return Column(
       children: [
         SizedBox(
-          // Covers the card's 56px top margin + 48px padding + content.
-          height: 276,
+          // Card's 56px top margin + 48px padding + content (~172px at
+          // default text scale) left this at a knife-edge — a system
+          // font-scale bump could overflow. +8px of slack here is close to
+          // imperceptible; content is top-aligned in the card, so a much
+          // bigger bump would show as visible empty space at the bottom.
+          height: 284,
           child: PageView.builder(
             controller: _controller,
             physics: groups.length == 1
@@ -527,7 +532,7 @@ class _GroupHeroCard extends StatelessWidget {
     final done = group.todaySummary.membersDoneToday;
     final total = group.memberCount;
     final allDone = group.goals.isNotEmpty &&
-        group.todaySummary.goalsNeedingEveryoneToday == 0;
+        group.todaySummary.goalsWaitingOnAnyoneToday == 0;
     final ringDone = group.goalsDoneByMeToday.length;
     final ringTotal = group.goals.length;
 
@@ -570,7 +575,8 @@ class _GroupHeroCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '$done/$total checked in today',
+                  // Explicitly "members" — this counts people, not rituals.
+                  '$done/$total ${plural(total, 'member')} checked in',
                   style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -579,7 +585,7 @@ class _GroupHeroCard extends StatelessWidget {
                 const SizedBox(height: 10),
 
                 // Shared streak, on white-on-gradient rather than the themed pill.
-                if (group.groupStreak > 0)
+                if (group.groupStreak > 0) ...[
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 9, vertical: 4),
@@ -591,7 +597,7 @@ class _GroupHeroCard extends StatelessWidget {
                       const Text('🔥', style: TextStyle(fontSize: 11)),
                       const SizedBox(width: 4),
                       Text(
-                        '${group.groupStreak} week streak',
+                        weekStreakLabel(group.groupStreak),
                         style: const TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.w800,
@@ -599,7 +605,8 @@ class _GroupHeroCard extends StatelessWidget {
                       ),
                     ]),
                   ),
-                const SizedBox(height: 10),
+                  const SizedBox(height: 10),
+                ],
 
                 Text(
                   StatusStyle.todayHeadline(group),
@@ -616,10 +623,25 @@ class _GroupHeroCard extends StatelessWidget {
           ),
           const SizedBox(width: 16),
           if (ringTotal > 0)
-            _CompletionRing(
-              progress: ringDone / ringTotal,
-              done: ringDone,
-              total: ringTotal,
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _CompletionRing(
+                  progress: ringDone / ringTotal,
+                  done: ringDone,
+                  total: ringTotal,
+                ),
+                const SizedBox(height: 4),
+                // The ring counts MY rituals today, not the group's — this
+                // sits right next to a member count, so the unit needs saying.
+                Text(
+                  'yours',
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withOpacity(0.6)),
+                ),
+              ],
             ),
         ],
       ),
@@ -824,19 +846,30 @@ class _RitualTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final accent = AppTheme.accentForIndex(index);
+    // Personal: I checked in today (dims + strikes the title, my own to-do).
+    // Group: the ritual met its weekly commitment (tints the card success
+    // green). The two are independent — my own tint stays purple/primary so
+    // it never reads as "the group finished this".
     final isCompleted = goal.currentUserCompletedToday;
+    final isGroupComplete = goal.status == GoalStatus.completed;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: isCompleted
-            ? cs.primary.withOpacity(0.05)
-            : Theme.of(context).brightness == Brightness.dark
-                ? const Color(0xFF1A1830)
-                : Colors.white,
+        color: isGroupComplete
+            ? AppTheme.success.withOpacity(0.06)
+            : isCompleted
+                ? cs.primary.withOpacity(0.05)
+                : Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF1A1830)
+                    : Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isCompleted ? cs.primary.withOpacity(0.2) : cs.onSurface.withOpacity(0.06),
+          color: isGroupComplete
+              ? AppTheme.success.withOpacity(0.25)
+              : isCompleted
+                  ? cs.primary.withOpacity(0.2)
+                  : cs.onSurface.withOpacity(0.06),
         ),
         boxShadow: [
           BoxShadow(
@@ -853,7 +886,11 @@ class _RitualTile extends StatelessWidget {
           height: 64,
           margin: const EdgeInsets.only(left: 0),
           decoration: BoxDecoration(
-            color: isCompleted ? cs.primary.withOpacity(0.4) : accent,
+            color: isGroupComplete
+                ? AppTheme.success
+                : isCompleted
+                    ? cs.primary.withOpacity(0.4)
+                    : accent,
             borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(20),
               bottomLeft: Radius.circular(20),
@@ -865,7 +902,9 @@ class _RitualTile extends StatelessWidget {
         Container(
           width: 42, height: 42,
           decoration: BoxDecoration(
-            color: accent.withOpacity(0.12),
+            color: isGroupComplete
+                ? AppTheme.success.withOpacity(0.14)
+                : accent.withOpacity(0.12),
             borderRadius: BorderRadius.circular(14),
           ),
           child: Center(child: Text(goal.icon, style: const TextStyle(fontSize: 20))),
@@ -877,6 +916,8 @@ class _RitualTile extends StatelessWidget {
             onTap: () => context.push('/group/$groupId'),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(goal.goalName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontWeight: FontWeight.w700, fontSize: 15,
                     decoration: isCompleted ? TextDecoration.lineThrough : null,
@@ -885,8 +926,8 @@ class _RitualTile extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 // Once you're done, show what the group still needs.
-                isCompleted && !isSolo ? StatusStyle.goalHint(goal) : groupName,
-                maxLines: 1,
+                isCompleted && !isSolo ? StatusStyle.goalHint(goal, isSolo: isSolo) : groupName,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.4)),
               ),
@@ -956,10 +997,13 @@ class _WeekSummarySection extends StatelessWidget {
       ),
       const SizedBox(height: 12),
       Row(children: [
-        _StatCard(icon: '✅', value: '$totalThisWeek', label: 'Check-ins',
+        // "Your" — this counts only my own check-ins across every group.
+        _StatCard(icon: '✅', value: '$totalThisWeek', label: 'Your check-ins',
             color: const Color(0xFF48BB78), cs: cs),
         const SizedBox(width: 10),
-        _StatCard(icon: '🎯', value: '$goalsMet/$totalGoals', label: 'Goals met',
+        // "· group" — this is the GROUP's weakest-link count, not mine; it can
+        // read 0 even when my own check-ins above are high.
+        _StatCard(icon: '🎯', value: '$goalsMet/$totalGoals', label: 'Rituals met · group',
             color: const Color(0xFF7B6FE8), cs: cs),
         const SizedBox(width: 10),
         _StatCard(icon: '📅', value: '$weekday/7', label: 'Day of week',
@@ -1002,6 +1046,8 @@ class _StatCard extends StatelessWidget {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
           const SizedBox(height: 2),
           Text(label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 10, color: cs.onSurface.withOpacity(0.45),
                   fontWeight: FontWeight.w600)),
         ]),
@@ -1039,7 +1085,7 @@ class _EmptyRitualsCard extends StatelessWidget {
               style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20, letterSpacing: -0.5)),
           const SizedBox(height: 8),
           Text(
-            'Build lasting habits with your friends & family. Create a group, set shared goals, and check in every day.',
+            'Build lasting habits with your friends & family. Create a group, set shared rituals, and check in every day.',
             style: TextStyle(fontSize: 14, color: cs.onSurface.withOpacity(0.55), height: 1.55),
           ),
           const SizedBox(height: 20),
@@ -1088,20 +1134,22 @@ class _StreakAtRiskBanner extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFFFF8C00), Color(0xFFFF6B35)],
+          colors: [AppTheme.warning, AppTheme.accent],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.orange.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: AppTheme.warning.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: Row(children: [
         const Text('\u{1F525}', style: TextStyle(fontSize: 22)),
         const SizedBox(width: 10),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('${group.groupName} — keep the streak alive',
-                maxLines: 1,
+            // Fixed lead-in first, variable group name last — a long name
+            // now trims itself instead of clipping away the whole message.
+            Text('Keep the streak alive — ${group.groupName}',
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                     fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white)),

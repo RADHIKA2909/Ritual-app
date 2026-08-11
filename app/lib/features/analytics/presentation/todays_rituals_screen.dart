@@ -235,7 +235,7 @@ class _ProgressHeroCard extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: allDone
-              ? [const Color(0xFF38A169), const Color(0xFF48BB78)]
+              ? [AppTheme.successDeep, AppTheme.success]
               : [cs.primary, cs.primary.withOpacity(0.75)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -243,7 +243,7 @@ class _ProgressHeroCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: (allDone ? const Color(0xFF48BB78) : cs.primary)
+            color: (allDone ? AppTheme.success : cs.primary)
                 .withOpacity(0.3),
             blurRadius: 24,
             offset: const Offset(0, 8),
@@ -343,25 +343,30 @@ class _RitualCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Personal: I checked in today. Group: the whole ritual met its weekly
+    // commitment. Only the latter gets the full-card success treatment —
+    // otherwise your own check-in reads as "the group finished this", which
+    // is misleading whenever a teammate still owes theirs.
     final isDone = goal.currentUserCompletedToday;
+    final isGroupComplete = goal.status == GoalStatus.completed;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDone
+        color: isGroupComplete
             ? AppTheme.success.withOpacity(0.07)
             : isDark
                 ? cs.surfaceVariant.withOpacity(0.5)
                 : cs.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isDone
+          color: isGroupComplete
               ? AppTheme.success.withOpacity(0.25)
               : cs.onSurface.withOpacity(0.07),
           width: 1.5,
         ),
-        boxShadow: isDone
+        boxShadow: isGroupComplete
             ? null
             : [
                 BoxShadow(
@@ -377,7 +382,7 @@ class _RitualCard extends StatelessWidget {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: isDone
+            color: isGroupComplete
                 ? AppTheme.success.withOpacity(0.12)
                 : cs.primary.withOpacity(0.08),
             borderRadius: BorderRadius.circular(14),
@@ -398,10 +403,14 @@ class _RitualCard extends StatelessWidget {
                 children: [
                   Text(
                     goal.goalName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 15,
                       letterSpacing: -0.3,
+                      // Strikethrough marks MY completion, independent of the
+                      // group's — it's about my to-do, not the ritual's state.
                       decoration: isDone ? TextDecoration.lineThrough : null,
                       decorationColor: cs.onSurface.withOpacity(0.3),
                       color: isDone
@@ -415,12 +424,12 @@ class _RitualCard extends StatelessWidget {
                         size: 11,
                         color: cs.onSurface.withOpacity(isDone ? 0.25 : 0.35)),
                     const SizedBox(width: 4),
-                    Flexible(
+                    Expanded(
                       // The group name is already the section header, so this
                       // line carries what the GROUP still needs instead.
                       child: Text(
-                        StatusStyle.goalHint(goal),
-                        maxLines: 1,
+                        StatusStyle.goalHint(goal, isSolo: isSolo),
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                             fontSize: 12,
@@ -460,7 +469,14 @@ class _GroupSectionHeader extends StatelessWidget {
 
     return Row(
       children: [
+        // flex: 20 against the trailing Spacer's implicit flex: 1 — a plain
+        // Flexible (flex: 1) here split the row's leftover space 50/50 with
+        // the empty Spacer, so a longer group name would ellipsize at
+        // half-width even with the other half sitting empty. This keeps the
+        // badge anchored next to the name and the streak pinned to the right
+        // edge (same as before) while giving the name virtually all the slack.
         Flexible(
+          flex: 20,
           child: Text(
             group.groupName,
             maxLines: 1,
@@ -477,19 +493,19 @@ class _GroupSectionHeader extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: done == group.goals.length
-                ? AppTheme.success.withOpacity(0.14)
-                : cs.onSurface.withOpacity(0.06),
+            // Neutral, not success-green: this is only MY count for today,
+            // and green here would read as "the group finished" — that state
+            // is reserved for genuine group completion (see StreakPill /
+            // GroupHealthChip on the group header).
+            color: cs.onSurface.withOpacity(0.06),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
-            '$done/${group.goals.length}',
+            'You $done/${group.goals.length}',
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w800,
-              color: done == group.goals.length
-                  ? AppTheme.success
-                  : cs.onSurface.withOpacity(0.45),
+              color: cs.onSurface.withOpacity(0.45),
             ),
           ),
         ),
@@ -509,7 +525,7 @@ class _AllDoneBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF38A169), Color(0xFF48BB78)],
+          colors: [AppTheme.successDeep, AppTheme.success],
         ),
         borderRadius: BorderRadius.circular(20),
       ),
@@ -561,7 +577,7 @@ class _EmptyRitualsView extends StatelessWidget {
               .fadeIn(duration: 400.ms),
           const SizedBox(height: 8),
           Text(
-            'Join a group and add goals to\nsee your daily rituals here.',
+            'Join a group and add rituals to\nsee your daily commitments here.',
             textAlign: TextAlign.center,
             style: TextStyle(
                 fontSize: 14,

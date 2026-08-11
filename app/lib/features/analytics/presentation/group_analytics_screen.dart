@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../domain/analytics_provider.dart';
 import '../../../core/network/socket_service.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/plurals.dart';
 
 class GroupAnalyticsScreen extends ConsumerStatefulWidget {
   final String groupId;
@@ -249,7 +251,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
               dividerColor: Colors.transparent,
               tabs: const [
                 Tab(text: 'Weekly View'),
-                Tab(text: 'Goal Heatmap'),
+                Tab(text: 'Ritual Heatmap'),
               ],
             ),
           ),
@@ -313,7 +315,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
 
     if (goals.isEmpty) {
       return Center(
-        child: Text('No goals yet.',
+        child: Text('No rituals yet.',
             style:
                 TextStyle(color: cs.onSurface.withOpacity(0.4))),
       );
@@ -357,7 +359,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: met
-                        ? const Color(0xFF48BB78).withOpacity(0.15)
+                        ? AppTheme.success.withOpacity(0.15)
                         : cs.onSurface.withOpacity(0.07),
                     borderRadius: BorderRadius.circular(20),
                   ),
@@ -367,7 +369,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       color: met
-                          ? const Color(0xFF48BB78)
+                          ? AppTheme.success
                           : cs.onSurface.withOpacity(0.4),
                     ),
                   ),
@@ -391,7 +393,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: isFullyMet
-                  ? const Color(0xFF48BB78).withOpacity(0.3)
+                  ? AppTheme.success.withOpacity(0.3)
                   : cs.onSurface.withOpacity(0.07),
             ),
             boxShadow: [
@@ -429,7 +431,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
                       horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
                     color: isFullyMet
-                        ? const Color(0xFF48BB78).withOpacity(0.12)
+                        ? AppTheme.success.withOpacity(0.12)
                         : cs.primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(20),
                   ),
@@ -439,7 +441,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
                       color: isFullyMet
-                          ? const Color(0xFF48BB78)
+                          ? AppTheme.success
                           : cs.primary,
                     ),
                   ),
@@ -478,7 +480,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
 
     if (goals.isEmpty) {
       return Center(
-          child: Text('No goals yet.',
+          child: Text('No rituals yet.',
               style: TextStyle(color: cs.onSurface.withOpacity(0.4))));
     }
 
@@ -660,8 +662,8 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
                       ),
                     ]),
                     const SizedBox(height: 2),
-                    const Text('weeks',
-                        style: TextStyle(
+                    Text(plural(currentStreak, 'week'),
+                        style: const TextStyle(
                             color: Colors.white60, fontSize: 12)),
                   ]),
                 ),
@@ -684,7 +686,7 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
                             height: 1),
                       ),
                       Text(
-                        'days in ${DateFormat('MMM').format(_selectedMonth)}',
+                        '${plural(monthTotal, 'day')} in ${DateFormat('MMM').format(_selectedMonth)}',
                         style: const TextStyle(
                             color: Colors.white70, fontSize: 12),
                       ),
@@ -737,13 +739,23 @@ class _GroupAnalyticsScreenState extends ConsumerState<GroupAnalyticsScreen>
               ],
             ),
             const SizedBox(height: 12),
-            GridView.count(
-              crossAxisCount: 7,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 6,
-              crossAxisSpacing: 6,
-              children: dayBoxes,
+            // Capped width: on a wide desktop browser window (this app has no
+            // page-level max-width) an uncapped GridView.count stretches each
+            // day cell to fill the available space, turning a calendar-style
+            // heatmap into an oversized grid spanning several screens.
+            Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: GridView.count(
+                  crossAxisCount: 7,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  childAspectRatio: 1,
+                  mainAxisSpacing: 6,
+                  crossAxisSpacing: 6,
+                  children: dayBoxes,
+                ),
+              ),
             ),
           ],
         ),

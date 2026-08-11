@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../groups/domain/group_provider.dart';
+import '../../../core/utils/plurals.dart';
 
 class SelectGroupAnalyticsScreen extends ConsumerWidget {
   const SelectGroupAnalyticsScreen({super.key});
@@ -48,7 +49,7 @@ class SelectGroupAnalyticsScreen extends ConsumerWidget {
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
                     ),
                     subtitle: Text(
-                      '${group['members'].length} members',
+                      count(group['members'].length as int, 'member'),
                       style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.54)),
                     ),
                     trailing: Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.54)),
