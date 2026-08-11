@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: ritual-backend
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Secrets — left blank on purpose so they are never stored in git.
+      # Render will prompt for these when the Blueprint is created; fill
+      # them in from backend/.env (which stays local/untracked going
+      # forward — see the .gitignore note in the deploy instructions).
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
