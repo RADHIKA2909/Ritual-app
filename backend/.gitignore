@@ -1,0 +1,14 @@
+# Dependencies — always reinstalled from package.json/package-lock.json.
+# Never commit this: it can contain platform-specific native binaries
+# (e.g. fsevents, macOS-only) that break on a different OS/architecture.
+node_modules/
+
+# Build output
+dist/
+
+# Env / secrets
+.env
+.env.local
+
+# Logs
+npm-debug.log*
