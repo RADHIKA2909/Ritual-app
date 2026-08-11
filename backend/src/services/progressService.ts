@@ -182,7 +182,12 @@ export const computeGroupStreak = (
 // View model
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type GoalStatus = 'completed' | 'on_track' | 'at_risk' | 'incomplete';
+export type GoalStatus =
+  | 'completed'
+  | 'on_track'
+  | 'needs_attention'
+  | 'at_risk'
+  | 'incomplete';
 export type StreakStatus = 'none' | 'building' | 'safe' | 'at_risk';
 export type HealthLabel = 'strong' | 'needs_attention' | 'at_risk';
 
@@ -205,6 +210,8 @@ export interface GroupGoalProgressDTO {
   groupTarget: number;
   groupProgress: number;
   status: GoalStatus;
+  /** The weekly minimum can no longer be reached, even with a perfect finish. */
+  unreachableThisWeek: boolean;
   goalStreak: number;
   currentUserCount: number;
   currentUserCompletedToday: boolean;
@@ -244,8 +251,19 @@ export interface GroupProgressDTO {
   health: GroupHealthDTO | null;
   todaySummary: {
     membersDoneToday: number;
-    goalsNeedingEveryoneToday: number;
+    /** Goals where at least one member still has to check in today. */
+    goalsWaitingOnAnyoneToday: number;
+    /** Goals where I've checked in today but someone else hasn't. */
+    goalsWaitingOnOthersOnlyToday: number;
+    /** Goals not yet weekly-complete where I haven't checked in today. */
     goalsWaitingOnMeToday: number;
+    /**
+     * @deprecated Misnamed — it always counted "anyone pending", not
+     * "everyone pending", which made the UI say "needs both of you" when only
+     * one member was outstanding. Use goalsWaitingOnAnyoneToday. Kept for one
+     * release so an older client doesn't break.
+     */
+    goalsNeedingEveryoneToday: number;
   };
   members: GroupMemberDTO[];
   goals: GroupGoalProgressDTO[];
@@ -259,18 +277,55 @@ const dayOfWeekIndex = (d: Date): number => {
 
 const dateKey = (d: Date): string => new Date(d).toISOString().split('T')[0];
 
+/**
+ * How a goal is tracking, judged against BOTH feasibility and pace.
+ *
+ * The earlier version took only `daysLeftInWeek` and so was a pure feasibility
+ * test — it reported "on track" for 1 of 3 on a Friday, because finishing was
+ * still arithmetically possible. It also had no tier for "behind, but still
+ * doable", which is the single most common mid-week state.
+ *
+ *   expectedByNow  = floor(weeklyMinimum * daysElapsed / 7)
+ *   daysRemaining  = 7 - daysElapsed          (days AFTER today)
+ *
+ * `floor` keeps early week forgiving — on Monday a 3x/week goal expects 0, so
+ * a group that hasn't started yet is "not started", not "behind". By Sunday it
+ * expects the full minimum. (deriveHealth deliberately keeps `ceil`; it is a
+ * separate, softer signal and moving it would shift health scores.)
+ */
 export const deriveGoalStatus = (
   groupCompletedCount: number,
   weeklyMinimum: number,
-  daysLeftInWeek: number
+  daysElapsedInWeek: number
 ): GoalStatus => {
+  if (weeklyMinimum <= 0) return 'completed';
   if (groupCompletedCount >= weeklyMinimum) return 'completed';
+
   const remaining = weeklyMinimum - groupCompletedCount;
-  // No slack left: the group must be perfect from here on, or it is already
-  // impossible. Either way it needs attention now.
-  if (remaining >= daysLeftInWeek) return 'at_risk';
-  if (groupCompletedCount > 0) return 'on_track';
-  return 'incomplete';
+  const daysRemaining = Math.max(0, 7 - daysElapsedInWeek);
+
+  // Needs today AND every day after it — or is already unreachable. Both
+  // genuinely threaten the streak, which is what "at risk" is for.
+  if (remaining > daysRemaining) return 'at_risk';
+
+  const expectedByNow = Math.floor((weeklyMinimum * daysElapsedInWeek) / 7);
+  if (groupCompletedCount < expectedByNow) return 'needs_attention';
+
+  if (groupCompletedCount === 0) return 'incomplete';
+  return 'on_track';
+};
+
+/** True when the weekly minimum is arithmetically unreachable. */
+export const isGoalUnreachable = (
+  groupCompletedCount: number,
+  weeklyMinimum: number,
+  daysElapsedInWeek: number
+): boolean => {
+  const remaining = weeklyMinimum - groupCompletedCount;
+  if (remaining <= 0) return false;
+  // At most one check-in per day, and today is still available.
+  const daysUsable = Math.max(0, 7 - daysElapsedInWeek) + 1;
+  return remaining > daysUsable;
 };
 
 const deriveStreakStatus = (
@@ -416,7 +471,12 @@ export const assembleGroupProgress = (
       groupTarget: weeklyMinimum,
       groupProgress:
         weeklyMinimum === 0 ? 1 : Math.min(1, groupCompletedCount / weeklyMinimum),
-      status: deriveGoalStatus(groupCompletedCount, weeklyMinimum, daysLeftInWeek),
+      status: deriveGoalStatus(groupCompletedCount, weeklyMinimum, daysElapsedInWeek),
+      unreachableThisWeek: isGoalUnreachable(
+        groupCompletedCount,
+        weeklyMinimum,
+        daysElapsedInWeek
+      ),
       goalStreak: computeGoalStreak(weekMap, weeklyMinimum, today),
       currentUserCount: userTicksThisWeek.get(currentUserId) || 0,
       currentUserCompletedToday: doneToday.has(currentUserId),
@@ -463,6 +523,10 @@ export const assembleGroupProgress = (
     (c) => getWeekStart(new Date(c.date)) < currentWeekStart
   );
 
+  const waitingOnAnyone = goalDtos.filter(
+    (g) => g.status !== 'completed' && g.membersPendingToday.length > 0
+  ).length;
+
   const isAdmin = adminId === currentUserId;
 
   const dto: GroupProgressDTO = {
@@ -486,12 +550,18 @@ export const assembleGroupProgress = (
     ),
     todaySummary: {
       membersDoneToday: members.filter((m) => m.completedToday).length,
-      goalsNeedingEveryoneToday: goalDtos.filter(
-        (g) => g.status !== 'completed' && g.membersPendingToday.length > 0
+      goalsWaitingOnAnyoneToday: waitingOnAnyone,
+      goalsWaitingOnOthersOnlyToday: goalDtos.filter(
+        (g) =>
+          g.status !== 'completed' &&
+          g.currentUserCompletedToday &&
+          g.membersPendingToday.length > 0
       ).length,
       goalsWaitingOnMeToday: goalDtos.filter(
         (g) => g.status !== 'completed' && !g.currentUserCompletedToday
       ).length,
+      // Deprecated alias — same value it always had.
+      goalsNeedingEveryoneToday: waitingOnAnyone,
     },
     members,
     goals: goalDtos,
