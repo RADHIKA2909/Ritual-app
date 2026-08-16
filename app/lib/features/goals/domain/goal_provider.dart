@@ -3,6 +3,8 @@ import 'pending_check_in_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
 import '../../groups/domain/group_provider.dart';
+import '../../groups/domain/group_progress_provider.dart';
+import '../../home/domain/my_progress_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 final goalsProvider = AsyncNotifierProvider<GoalsNotifier, List<dynamic>>(() {
@@ -166,8 +168,20 @@ class CheckInNotifier extends AsyncNotifier<Map<String, List<dynamic>>> {
   /// double tap converges instead of silently undoing the check-in, and two
   /// devices acting at once agree rather than flip-flopping.
   ///
+  /// [groupId] is the goal's group — after a successful POST this awaits that
+  /// group's progress refresh (both the cross-group and single-group caches)
+  /// before returning, so `pending` never clears until the data driving
+  /// `isCompleted` elsewhere in the UI is actually fresh. Doing this here,
+  /// once, means every call site gets it for free instead of each one having
+  /// to remember to refresh — and previously one of them didn't.
+  ///
   /// Returns false when the request was skipped (already in flight) or failed.
-  Future<bool> setCheckIn(String goalId, DateTime date, bool completed) async {
+  Future<bool> setCheckIn(
+    String goalId,
+    String groupId,
+    DateTime date,
+    bool completed,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getString('user_id');
     if (userId == null) return false;
@@ -228,6 +242,15 @@ class CheckInNotifier extends AsyncNotifier<Map<String, List<dynamic>>> {
 
       currentState[goalId] = newCheckIns;
       state = AsyncData({...currentState});
+
+      // Both caches can be showing this group (Home/Today's Rituals via
+      // myProgressProvider, Group Detail via groupProgressProvider) — refresh
+      // both, concurrently, and wait for them so the spinner covers the full
+      // round trip instead of clearing before isCompleted actually updates.
+      await Future.wait([
+        ref.read(myProgressProvider.notifier).refreshGroup(groupId),
+        ref.read(groupProgressProvider(groupId).notifier).refreshSilently(),
+      ]);
       return true;
     } catch (e) {
       // Revert to server truth.
@@ -236,14 +259,5 @@ class CheckInNotifier extends AsyncNotifier<Map<String, List<dynamic>>> {
     } finally {
       pending.end(key);
     }
-  }
-
-  /// Legacy toggle, kept so existing call sites keep working.
-  /// Prefer [setCheckIn], which is idempotent and guarded against double taps.
-  Future<void> toggleCheckIn(String goalId, DateTime date) async {
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getString('user_id');
-    if (userId == null) return;
-    await setCheckIn(goalId, date, !isCompletedOn(goalId, userId, date));
   }
 }

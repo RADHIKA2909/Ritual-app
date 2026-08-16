@@ -15,6 +15,15 @@ final myProgressProvider =
 );
 
 class MyProgressNotifier extends AsyncNotifier<List<GroupProgress>> {
+  // A single check-in can trigger several concurrent refreshes of this same
+  // data (the direct post-check-in refresh, plus a socket `checkin_updated`
+  // echoed back to the acting user's own room, plus whatever else is
+  // in-flight) with no guarantee they resolve in the order they started.
+  // Each refresh captures the counter before it awaits anything and only
+  // applies its result if nothing newer has started since — so a slow,
+  // stale response can never stomp a result that already landed.
+  int _requestId = 0;
+
   @override
   Future<List<GroupProgress>> build() async {
     return _fetchAll();
@@ -27,8 +36,11 @@ class MyProgressNotifier extends AsyncNotifier<List<GroupProgress>> {
 
   /// Refresh everything without a loading flash.
   Future<void> refreshSilently() async {
+    final requestId = ++_requestId;
     try {
-      state = AsyncData(await _fetchAll());
+      final result = await _fetchAll();
+      if (requestId != _requestId) return; // superseded — discard
+      state = AsyncData(result);
     } catch (_) {
       // Keep the last good state.
     }
@@ -45,11 +57,14 @@ class MyProgressNotifier extends AsyncNotifier<List<GroupProgress>> {
       // full refresh so newly joined groups still appear.
       return refreshSilently();
     }
+    final requestId = ++_requestId;
     try {
       final response = await ApiClient.instance.get('/groups/$groupId/progress');
+      if (requestId != _requestId) return; // superseded — discard
       final updated = GroupProgress.fromJson(response.data as Map<String, dynamic>);
+      final latest = state.value ?? current;
       state = AsyncData([
-        for (final g in current) g.groupId == groupId ? updated : g,
+        for (final g in latest) g.groupId == groupId ? updated : g,
       ]);
     } catch (_) {
       // Keep the last good state.

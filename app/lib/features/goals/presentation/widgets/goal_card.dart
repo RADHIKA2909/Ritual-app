@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/goal_provider.dart';
+import '../../domain/pending_check_in_provider.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/status_style.dart';
 import '../../../groups/domain/models/group_progress.dart';
@@ -64,13 +65,20 @@ class _GoalCardState extends ConsumerState<GoalCard> {
   // (see backend/src/services/progressService.ts) via widget.progress, so the
   // client and the streak endpoint can no longer disagree.
 
-  void _toggleMyDay(DateTime date) {
+  Future<void> _toggleMyDay(DateTime date) async {
     HapticFeedback.lightImpact();
     // Explicit target rather than a blind flip, so a double tap converges.
     final target = !ref
         .read(checkInProvider.notifier)
         .isCompletedOn(widget.goalId, currentUserId ?? '', date);
-    ref.read(checkInProvider.notifier).setCheckIn(widget.goalId, date, target);
+    // Awaited so the pending state (watched below) covers the full round
+    // trip, including setCheckIn's own refresh of this group's progress —
+    // previously this fired the request and moved on, so the "Together"/"You"
+    // bars and the pill button only ever caught up via the slower socket
+    // round trip instead of directly.
+    await ref
+        .read(checkInProvider.notifier)
+        .setCheckIn(widget.goalId, widget.groupId, date, target);
   }
 
   Widget _buildDayDot(
@@ -95,10 +103,17 @@ class _GoalCardState extends ConsumerState<GoalCard> {
           d.day == targetDate.day;
     });
 
+    // Same in-flight tracking CheckInButton uses, so this dot gives the same
+    // honest feedback instead of looking idle while its request is pending.
+    final pending = isMe &&
+        ref
+            .watch(pendingCheckInProvider)
+            .contains(pendingCheckInKey(widget.goalId, targetDate));
+
     final cs = Theme.of(context).colorScheme;
 
     return GestureDetector(
-      onTap: (isMe && !isFuture) ? () => _toggleMyDay(targetDate) : null,
+      onTap: (isMe && !isFuture && !pending) ? () => _toggleMyDay(targetDate) : null,
       child: Column(children: [
         Text(
           dayLabel,
@@ -119,7 +134,7 @@ class _GoalCardState extends ConsumerState<GoalCard> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: hasCheckedIn
-                ? cs.primary
+                ? cs.primary.withOpacity(pending ? 0.6 : 1)
                 : isFuture
                     ? cs.surfaceVariant.withOpacity(0.2)
                     : cs.surfaceVariant.withOpacity(0.55),
@@ -127,17 +142,30 @@ class _GoalCardState extends ConsumerState<GoalCard> {
               color: isToday && !hasCheckedIn
                   ? cs.primary.withOpacity(0.5)
                   : hasCheckedIn
-                      ? cs.primary
+                      ? cs.primary.withOpacity(pending ? 0.6 : 1)
                       : cs.onSurface.withOpacity(isFuture ? 0.05 : 0.08),
               width: isToday ? 2 : 1.5,
             ),
           ),
-          child: hasCheckedIn
-              ? Icon(Icons.check_rounded, size: 18, color: cs.onPrimary)
-              : isMe && isToday
-                  ? Icon(Icons.add_rounded,
-                      size: 16, color: cs.primary.withOpacity(0.6))
-                  : null,
+          child: pending
+              ? Center(
+                  child: SizedBox(
+                    height: 12,
+                    width: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.5,
+                      valueColor: AlwaysStoppedAnimation(
+                        hasCheckedIn ? cs.onPrimary : cs.primary.withOpacity(0.6),
+                      ),
+                    ),
+                  ),
+                )
+              : hasCheckedIn
+                  ? Icon(Icons.check_rounded, size: 18, color: cs.onPrimary)
+                  : isMe && isToday
+                      ? Icon(Icons.add_rounded,
+                          size: 16, color: cs.primary.withOpacity(0.6))
+                      : null,
         ),
       ]),
     );

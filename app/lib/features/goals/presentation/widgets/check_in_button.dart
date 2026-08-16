@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../groups/domain/group_progress_provider.dart';
-import '../../../home/domain/my_progress_provider.dart';
 import '../../domain/goal_provider.dart';
 import '../../domain/pending_check_in_provider.dart';
 
@@ -49,14 +47,13 @@ class CheckInButton extends ConsumerWidget {
   Future<void> _handleTap(WidgetRef ref) async {
     final target = !isCompleted;
     HapticFeedback.selectionClick();
-    final ok = await ref.read(checkInProvider.notifier).setCheckIn(goalId, date, target);
+    // `setCheckIn` refreshes this group's progress itself (both the
+    // cross-group and single-group caches) before returning, so `pending`
+    // here — and thus the spinner — covers the full round trip: no gap where
+    // the spinner's gone but `isCompleted` hasn't caught up yet.
+    final ok =
+        await ref.read(checkInProvider.notifier).setCheckIn(goalId, groupId, date, target);
     if (!ok) return;
-
-    // `isCompleted` comes from the server-derived progress model, so refresh it
-    // rather than waiting for the socket round trip — otherwise the button
-    // stays on "Check in" for a beat after a successful tap.
-    ref.read(myProgressProvider.notifier).refreshGroup(groupId);
-    ref.read(groupProgressProvider(groupId).notifier).refreshSilently();
     onChanged?.call(target);
   }
 

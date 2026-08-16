@@ -18,6 +18,14 @@ class GroupProgressNotifier extends AsyncNotifier<GroupProgress> {
 
   final String groupId;
 
+  // Several things can trigger a refresh of the same group in quick
+  // succession (the direct post-check-in refresh, a socket `checkin_updated`
+  // for this group, another member's action) with no guarantee of arrival
+  // order. Capture the counter before awaiting and only apply the result if
+  // nothing newer has started since, so a slow, stale response can't stomp
+  // a result that already landed.
+  int _requestId = 0;
+
   @override
   Future<GroupProgress> build() async {
     return _fetch();
@@ -31,8 +39,10 @@ class GroupProgressNotifier extends AsyncNotifier<GroupProgress> {
   /// Refresh without flashing a loading state — for socket-driven updates,
   /// where the screen already has good data on screen.
   Future<void> refreshSilently() async {
+    final requestId = ++_requestId;
     try {
       final progress = await _fetch();
+      if (requestId != _requestId) return; // superseded — discard
       state = AsyncData(progress);
     } catch (_) {
       // Keep the last good state; a transient socket-triggered refetch failing
