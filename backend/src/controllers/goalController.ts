@@ -7,6 +7,7 @@ import {
   buildGoalWeekUserTicks,
   buildWeeklyGoalTicks,
   computeGroupStreak,
+  buildGroupProgress,
 } from '../services/progressService';
 import { io } from '../index';
 
@@ -130,7 +131,13 @@ export const toggleCheckIn = async (req: GroupRequest, res: Response) => {
       io.to(`user_${memberId}`).emit('checkin_updated', { goalId, groupId });
     });
 
-    res.status(200).json(checkIn);
+    // Computed here and returned alongside the checkIn so the caller's own
+    // client can apply it directly, instead of writing this check-in and then
+    // making a *second* round trip to ask for the progress it just caused —
+    // that second request was the main cost of the visible delay after a tap.
+    const progress = await buildGroupProgress(group, String(req.user!._id));
+
+    res.status(200).json({ checkIn, progress });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

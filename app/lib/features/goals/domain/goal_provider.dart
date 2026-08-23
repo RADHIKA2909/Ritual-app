@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_client.dart';
 import '../../groups/domain/group_provider.dart';
 import '../../groups/domain/group_progress_provider.dart';
+import '../../groups/domain/models/group_progress.dart';
 import '../../home/domain/my_progress_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -229,7 +230,7 @@ class CheckInNotifier extends AsyncNotifier<Map<String, List<dynamic>>> {
       );
 
       // Swap the optimistic row for the server's, so we hold the real _id.
-      final realCheckIn = response.data;
+      final realCheckIn = response.data['checkIn'];
       final newCheckIns = List<dynamic>.from(currentState[goalId] ?? []);
       final replaceIndex = newCheckIns.indexWhere((c) {
         if (c['userId'] != userId) return false;
@@ -243,14 +244,17 @@ class CheckInNotifier extends AsyncNotifier<Map<String, List<dynamic>>> {
       currentState[goalId] = newCheckIns;
       state = AsyncData({...currentState});
 
-      // Both caches can be showing this group (Home/Today's Rituals via
-      // myProgressProvider, Group Detail via groupProgressProvider) — refresh
-      // both, concurrently, and wait for them so the spinner covers the full
-      // round trip instead of clearing before isCompleted actually updates.
-      await Future.wait([
-        ref.read(myProgressProvider.notifier).refreshGroup(groupId),
-        ref.read(groupProgressProvider(groupId).notifier).refreshSilently(),
-      ]);
+      // The check-in endpoint computes and returns this group's updated
+      // progress in the same response, so both caches (Home/Today's Rituals
+      // via myProgressProvider, Group Detail via groupProgressProvider) can
+      // be updated directly — no second request needed. That follow-up GET
+      // was the actual cost behind the visible delay after a tap; this way
+      // the spinner only ever covers one round trip, not two.
+      final progress = GroupProgress.fromJson(
+        response.data['progress'] as Map<String, dynamic>,
+      );
+      ref.read(myProgressProvider.notifier).applyGroupProgress(progress);
+      ref.read(groupProgressProvider(groupId).notifier).applyProgress(progress);
       return true;
     } catch (e) {
       // Revert to server truth.

@@ -49,4 +49,13 @@ class GroupProgressNotifier extends AsyncNotifier<GroupProgress> {
       // shouldn't blank out a working screen.
     }
   }
+
+  /// Apply progress the caller already has in hand (see
+  /// [MyProgressNotifier.applyGroupProgress] — same idea, this group's half
+  /// of it). No network call. Still bumps the request counter so an older,
+  /// still-in-flight [refreshSilently] can't land after this and revert it.
+  void applyProgress(GroupProgress progress) {
+    ++_requestId;
+    state = AsyncData(progress);
+  }
 }

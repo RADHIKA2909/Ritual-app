@@ -70,4 +70,21 @@ class MyProgressNotifier extends AsyncNotifier<List<GroupProgress>> {
       // Keep the last good state.
     }
   }
+
+  /// Apply progress the caller already has in hand — e.g. the check-in
+  /// endpoint now returns the group's updated progress in the same response,
+  /// so the client that just made the change doesn't need to turn around and
+  /// ask the server for it again. No network call, so this is effectively
+  /// instant; still bumps the request counter so any older, still-in-flight
+  /// [refreshGroup]/[refreshSilently] call can't land after this and revert it.
+  void applyGroupProgress(GroupProgress progress) {
+    ++_requestId;
+    final current = state.value;
+    if (current == null || !current.any((g) => g.groupId == progress.groupId)) {
+      return; // Not a group we're showing (or nothing loaded yet) — ignore.
+    }
+    state = AsyncData([
+      for (final g in current) g.groupId == progress.groupId ? progress : g,
+    ]);
+  }
 }
