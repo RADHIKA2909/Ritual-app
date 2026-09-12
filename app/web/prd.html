@@ -506,7 +506,7 @@
   <div class="doc-header">
     <div class="eyebrow">Product Requirements Document</div>
     <h1>Ritual v1</h1>
-    <p class="lede">A group-first habit tracker. Rituals belong to a group, not a person, and the group's streak is only as strong as its weakest link.</p>
+    <p class="lede">A habit tracker for groups. You build habits with friends, not alone.</p>
     <div class="hero-cta-row">
       <a class="btn-solid" href="https://ritual-app-abcd.web.app/demo.html" target="_blank" rel="noopener">Try the live demo <span class="arrow">&rarr;</span></a>
       <a class="btn-link" href="https://ritual-app-abcd.web.app/case-study.html" target="_blank" rel="noopener">Read the case study <span class="arrow">&rarr;</span></a>
@@ -518,7 +518,7 @@
       </div>
       <div class="doc-meta-item">
         <span class="label">Platform</span>
-        <span class="value">Web (Flutter)</span>
+        <span class="value">Web</span>
       </div>
       <div class="doc-meta-item">
         <span class="label">Owner</span>
@@ -526,181 +526,89 @@
       </div>
       <div class="doc-meta-item">
         <span class="label">Stack</span>
-        <span class="value mono" style="font-size:0.82rem;">Flutter &middot; Node/TS &middot; MongoDB &middot; Socket.IO</span>
+        <span class="value mono" style="font-size:0.82rem;">Flutter &middot; Node.js &middot; MongoDB</span>
       </div>
     </div>
   </div>
 
   <section>
-    <div class="section-head"><span class="section-num">01</span><h2>Problem statement</h2></div>
-    <p>Most habit trackers are built around one person's willpower. The moment you miss a day alone, there's no social cost to missing it again tomorrow, so the habit quietly dies and the app becomes another abandoned icon.</p>
-    <p>Ritual starts from a different assumption: habits hold up better when someone else is watching, and when "progress" means the <em>group's</em> progress, not a private streak that only you can see and only you can quietly let slip.</p>
+    <div class="section-head"><span class="section-num">01</span><h2>The problem</h2></div>
+    <p>Most habit trackers only work if you have strong willpower. Miss one day, and no one notices. So people quietly give up.</p>
+    <p>Ritual makes habits a group activity instead. You build them with other people, so a missed day isn't just your own secret anymore.</p>
   </section>
 
   <section>
-    <div class="section-head"><span class="section-num">02</span><h2>Goals &amp; non-goals</h2></div>
+    <div class="section-head"><span class="section-num">02</span><h2>Goals</h2></div>
     <div class="two-col">
       <div>
-        <div class="subhead">Goals</div>
+        <div class="subhead">We want to</div>
         <ul class="plain">
-          <li>Make shared accountability the default. Every ritual belongs to a group, never just a person.</li>
-          <li>Make "are we on track" answerable at a glance, with no mental math.</li>
-          <li>Make checking in fast enough to survive a busy day: one tap, confirmed in real time.</li>
-          <li>Ship something people could actually use, not a prototype sitting in a repo.</li>
+          <li>Make every habit belong to a group, not one person.</li>
+          <li>Make checking in take one tap.</li>
+          <li>Show if the group is on track, at a glance.</li>
         </ul>
       </div>
       <div class="non-goals">
-        <div class="subhead">Non-goals (v1)</div>
+        <div class="subhead">Not doing yet</div>
         <ul class="plain">
-          <li>Native mobile apps. Web-only for v1, revisit later if it's worth it.</li>
-          <li>Public or discoverable groups. Invite-code-only, private by default.</li>
-          <li>Push or email reminders. The group's own social pressure is meant to carry v1, not the app nudging people.</li>
-          <li>A habit template library. Groups define their own rituals from a blank slate.</li>
+          <li>A mobile app. Web only, for now.</li>
+          <li>Public groups. Invite-only, for now.</li>
+          <li>Reminders or notifications.</li>
         </ul>
       </div>
     </div>
   </section>
 
   <section>
-    <div class="section-head"><span class="section-num">03</span><h2>Target users</h2></div>
+    <div class="section-head"><span class="section-num">03</span><h2>Who it's for</h2></div>
     <div class="persona-grid">
       <div class="persona-card">
-        <div class="glyph">01 &middot; THE PAIR</div>
-        <h3>Two people, one habit</h3>
-        <p>Close friends or partners holding each other to something specific, like a gym routine or cutting out junk food.</p>
+        <div class="glyph">THE PAIR</div>
+        <h3>Two people</h3>
+        <p>Friends or partners doing one habit together, like going to the gym.</p>
       </div>
       <div class="persona-card">
-        <div class="glyph">02 &middot; THE SQUAD</div>
-        <h3>Four to six people</h3>
-        <p>A looser friend group with real but lower-pressure mutual accountability, and a bit of friendly competition.</p>
+        <div class="glyph">THE SQUAD</div>
+        <h3>A small group</h3>
+        <p>Four to six friends, with a bit of friendly competition.</p>
       </div>
       <div class="persona-card">
-        <div class="glyph">03 &middot; THE SOLO RITUALIST</div>
-        <h3>A group of one</h3>
-        <p>Tracks personal rituals alone, but still wants the same streaks, heatmaps, and status machinery.</p>
+        <div class="glyph">SOLO</div>
+        <h3>Just you</h3>
+        <p>Tracking your own habits alone, with the same tools.</p>
       </div>
     </div>
   </section>
 
   <section>
-    <div class="section-head"><span class="section-num">04</span><h2>User stories</h2></div>
-
-    <div class="story-group">
-      <h3>Onboarding</h3>
-      <ul class="plain">
-        <li>As a new user, I can sign in with Google in one tap.</li>
-        <li>As a curious visitor, I can try the whole app instantly through a demo account, no account creation needed.</li>
-      </ul>
-    </div>
-    <div class="story-group">
-      <h3>Groups &amp; rituals</h3>
-      <ul class="plain">
-        <li>As a user, I can create a group and get a shareable invite code, or join one with a code.</li>
-        <li>As a group member, I can define a ritual with an icon and a weekly minimum, and edit or remove it later.</li>
-        <li>As a group admin, I can remove a member or delete the group.</li>
-      </ul>
-    </div>
-    <div class="story-group">
-      <h3>Check-ins</h3>
-      <ul class="plain">
-        <li>As a group member, I can check in for a ritual today in one tap, and safely undo it if I tapped by mistake.</li>
-        <li>As a group member, I see a groupmate's check-in appear instantly, with no refresh.</li>
-        <li>As a group member, I can leave a short note or react with an emoji on a groupmate's check-in.</li>
-      </ul>
-    </div>
-    <div class="story-group">
-      <h3>Progress &amp; social</h3>
-      <ul class="plain">
-        <li>As a group member, I can see our current weekly streak, based on the group's weakest link, not its best performer.</li>
-        <li>As a group member, I can tell whether a ritual is on track, needs a push, or is already at risk this week.</li>
-        <li>As a group member, I can see a heatmap of the group's history, and chat with the group in a dedicated thread.</li>
-      </ul>
-    </div>
-    <div class="story-group">
-      <h3>Demo</h3>
-      <ul class="plain">
-        <li>As a visitor, I can explore a fully "lived-in" account (populated groups, months of history, an active chat) without setting anything up myself.</li>
-      </ul>
-    </div>
+    <div class="section-head"><span class="section-num">04</span><h2>Main features</h2></div>
+    <ul class="plain">
+      <li>Sign in with Google, or try a demo account with no sign-up.</li>
+      <li>Create a group, or join one with an invite code.</li>
+      <li>Add a habit ("a ritual") with a name and a weekly goal.</li>
+      <li>Check in with one tap. See your group's check-ins live, with no refresh.</li>
+      <li>See your group's streak. It's based on whoever is doing the <em>least</em>, not the most.</li>
+      <li>See if a habit is on track, needs a push, or at risk this week.</li>
+      <li>React or leave a note on a friend's check-in.</li>
+      <li>Chat with your group, and see a heatmap of your history together.</li>
+    </ul>
   </section>
 
   <section>
-    <div class="section-head"><span class="section-num">05</span><h2>Functional requirements</h2></div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>ID</th><th>Area</th><th>Requirement</th></tr>
-        </thead>
-        <tbody>
-          <tr><td class="id">REQ-1</td><td class="area">Auth</td><td>Google Sign-In via Firebase; the backend verifies the ID token and issues its own JWT.</td></tr>
-          <tr><td class="id">REQ-2</td><td class="area">Auth</td><td>A public demo login that works in production, fully isolated from real user data.</td></tr>
-          <tr><td class="id">REQ-3</td><td class="area">Groups</td><td>Create, join-by-code, leave, and delete (admin-only).</td></tr>
-          <tr><td class="id">REQ-4</td><td class="area">Rituals</td><td>Each ritual belongs to exactly one group, with an icon and a weekly minimum of 1&ndash;7.</td></tr>
-          <tr><td class="id">REQ-5</td><td class="area">Check-ins</td><td>Idempotent set, not just toggle, so a double-tap can never silently undo a check-in.</td></tr>
-          <tr><td class="id">REQ-6</td><td class="area">Check-ins</td><td>One check-in per person, per ritual, per day. Enforced at the database level.</td></tr>
-          <tr><td class="id">REQ-7</td><td class="area">Progress</td><td>Weekly streak computed as the minimum completion across all current members, never an average.</td></tr>
-          <tr><td class="id">REQ-8</td><td class="area">Progress</td><td>Status per ritual (on track / needs attention / at risk / complete) derived from pace, not a raw count.</td></tr>
-          <tr><td class="id">REQ-9</td><td class="area">Real-time</td><td>Any check-in, reaction, or message reaches every other online member in the same session, no refresh needed.</td></tr>
-          <tr><td class="id">REQ-10</td><td class="area">Analytics</td><td>A per-group heatmap and streak history, plus a personal view across all of a user's groups.</td></tr>
-          <tr><td class="id">REQ-11</td><td class="area">Chat</td><td>A per-group message thread.</td></tr>
-          <tr><td class="id">REQ-12</td><td class="area">Demo</td><td>Demo data regenerates on a daily cycle, so the app always looks "three months lived-in" relative to today.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section>
-    <div class="section-head"><span class="section-num">06</span><h2>Non-functional requirements</h2></div>
-    <div class="nfr-grid">
-      <div class="nfr-card">
-        <div class="subhead">Real-time delivery</div>
-        <p>Updates are pushed over WebSocket (Socket.IO) instead of polled. A groupmate's check-in should feel instant, not delayed.</p>
-      </div>
-      <div class="nfr-card">
-        <div class="subhead">Free-tier constraint</div>
-        <p>v1 runs entirely on free-tier infrastructure, and is built to tolerate a cold-start delay on the backend rather than needing an always-on paid tier.</p>
-      </div>
-      <div class="nfr-card">
-        <div class="subhead">Single source of truth</div>
-        <p>Streaks, status, and health are computed server-side only. The client never re-derives them, so the two can't quietly drift apart.</p>
-      </div>
-      <div class="nfr-card">
-        <div class="subhead">Demo isolation</div>
-        <p>Demo mode has to be provably incapable of corrupting or exposing real user data, even though it runs against the same shared database.</p>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="section-head"><span class="section-num">07</span><h2>Success metrics</h2></div>
+    <div class="section-head"><span class="section-num">05</span><h2>How we'll know it's working</h2></div>
     <div class="metric-list">
       <div class="metric-row">
-        <div class="metric-name">Week-over-week check-in rate</div>
-        <div class="metric-why">The number that actually tells us whether the accountability model is working, not just signups.</div>
+        <div class="metric-name">Weekly check-ins</div>
+        <div class="metric-why">People come back every week, not just once.</div>
       </div>
       <div class="metric-row">
-        <div class="metric-name">Weekly-active <em>groups</em></div>
-        <div class="metric-why">Not weekly-active users. The group, not the individual, is the unit that should show up.</div>
+        <div class="metric-name">Active groups</div>
+        <div class="metric-why">The whole group stays active, not just one person.</div>
       </div>
       <div class="metric-row">
-        <div class="metric-name">Time to first check-in</div>
-        <div class="metric-why">From opening the app to a completed check-in. Should stay low enough to survive a busy day.</div>
+        <div class="metric-name">Fast check-ins</div>
+        <div class="metric-why">Checking in takes seconds, not effort.</div>
       </div>
-      <div class="metric-row">
-        <div class="metric-name">Demo-to-curiosity conversion</div>
-        <div class="metric-why">Informal signal: does a demo visitor look around past the first screen before leaving.</div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="section-head"><span class="section-num">08</span><h2>Out of scope (v2 considerations)</h2></div>
-    <div class="oos-tags">
-      <span class="oos-tag">Native mobile apps</span>
-      <span class="oos-tag">Push / email reminders</span>
-      <span class="oos-tag">Habit template library</span>
-      <span class="oos-tag">Public / discoverable groups</span>
-      <span class="oos-tag">Chat moderation tooling</span>
     </div>
   </section>
 </main>
