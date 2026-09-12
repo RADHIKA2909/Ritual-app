@@ -430,7 +430,7 @@
   <div class="hero-inner">
     <span class="eyebrow">Case Study &middot; Product &amp; Engineering</span>
     <h1>Habits don't fail from a lack of willpower.<br>They fail because no one's watching.</h1>
-    <p class="sub">Ritual is a group habit tracker I built end to end: the weakest-link streak algorithm, the real-time backend, a rough deployment, and a demo account that keeps itself three months old.</p>
+    <p class="sub">Ritual is a group habit tracker. I built it myself, end to end: the streak system, the real-time backend, the deployment, and a demo account that stays three months fresh.</p>
     <div class="hero-cta-row">
       <a class="btn-solid" href="https://ritual-app-abcd.web.app/demo.html" target="_blank" rel="noopener">Try the live demo <span class="arrow">&rarr;</span></a>
       <a class="btn-outline-dark" href="https://ritual-app-abcd.web.app/prd.html" target="_blank" rel="noopener">Read the PRD</a>
@@ -449,14 +449,14 @@
 <main>
   <section id="problem">
     <div class="section-label"><span class="eyebrow">The problem</span><span class="rule"></span></div>
-    <p class="lede">Most habit trackers are built around one person's willpower. Miss a day alone and there's no real cost to missing it again tomorrow, so the streak quietly dies and the app turns into another abandoned icon.</p>
-    <p>I wanted Ritual to work differently: habits hold up better when someone else is watching. Not a leaderboard full of strangers, just a small group of people who'd actually notice if you disappeared.</p>
+    <p class="lede">Most habit trackers only work if you have strong willpower. Miss a day, and nothing happens. So people quietly give up.</p>
+    <p>I wanted Ritual to work differently. You build habits with a small group of people, not alone, so someone actually notices if you disappear.</p>
   </section>
 
   <section id="product">
     <div class="section-label"><span class="eyebrow">The product</span><span class="rule"></span></div>
     <h2>Rituals belong to a group, not to you.</h2>
-    <p>Every habit in Ritual, a "ritual," is owned by a group, never a single person. A group might be two people holding each other to a gym routine, a five-person friend circle, or just one person who still wants the same streaks and heatmaps for themselves. Checking in, reacting to a groupmate's check-in, watching a shared streak survive the week: it all happens in real time, so the app feels more like a group chat than a private to-do list.</p>
+    <p>Every habit in Ritual, a "ritual," belongs to a group, never to one person. A group can be two people, a few friends, or just you. Checking in happens live, so the app feels like a group chat, not a private to-do list.</p>
   </section>
 
   <section id="decisions">
@@ -468,16 +468,15 @@
         <span class="decision-tag">ALGORITHM</span>
         <h3>The weakest-link streak</h3>
       </div>
-      <p>A group's weekly streak isn't an average, and it isn't just the best member's count. It's the <strong>minimum</strong> completion rate across every current member, checked against the ritual's weekly minimum, on Monday-anchored UTC weeks. If four people hit their target and one didn't, the group's streak reads exactly like that one person's week did. That's strict on purpose: a streak that flatters the group's best performer doesn't actually hold anyone accountable, since it lets someone quietly check out without it ever showing up in the number that matters.</p>
-      <p>Status per ritual (<code>on_track</code> / <code>needs_attention</code> / <code>at_risk</code> / <code>complete</code>) comes from <em>pace</em> against that minimum, not a raw count. So a group sitting at 1 of 3 check-ins on a Monday correctly reads as fine, and that same 1-of-3 on a Friday reads as at risk.</p>
+      <p>A group's streak is not an average. It's based on whoever is doing the <strong>least</strong>. If four people hit their goal and one didn't, the group's streak looks like that one person's week. This is strict on purpose, so no one can quietly fall behind without the group seeing it.</p>
     </div>
 
     <div class="decision">
       <div class="decision-head">
         <span class="decision-tag">ARCHITECTURE</span>
-        <h3>The server is the only source of truth</h3>
+        <h3>The server decides everything</h3>
       </div>
-      <p>Every streak, status badge, and health score gets computed once, on the server, straight from the raw check-in documents. The Flutter client never recomputes any of it. That sounds like a small rule, but it matters: the UI can't drift from the backend's idea of "on track" if it was never allowed to have its own idea in the first place. Its job is just to render what the server already decided.</p>
+      <p>Streaks, status, and scores are all worked out on the server, never in the app itself. This way, the app and the server can never disagree about what's true.</p>
     </div>
 
     <div class="decision">
@@ -485,7 +484,7 @@
         <span class="decision-tag">PRODUCT</span>
         <h3>"My progress" became "our progress"</h3>
       </div>
-      <p>Going back through the UI, I noticed it was quietly talking to the individual everywhere: "your streak," a lone completion ring, a "Go" button that gave no sense of who else was waiting. So I rewrote that language across the app. The home screen now leads with the group's status, not yours. "Check in" replaced the vague "Go." Every card separates your check-in from the group's completion, instead of blurring the two into one green checkmark.</p>
+      <p>At first, the app talked about "your streak" and "your progress" everywhere. I rewrote it to talk about the group instead. The home screen now shows the group's status first, not just yours.</p>
     </div>
   </section>
 
@@ -496,32 +495,31 @@
     <div class="challenge">
       <span class="challenge-num mono">01</span>
       <h3>The mobile app that had to stop being one</h3>
-      <p>Ritual started as a Flutter app targeting mobile and web at once. Once it was clear the people who mattered were opening a link, not installing an app, I pulled out every mobile-only code path: platform channels, mobile-specific navigation, permissions nothing used. What was left was one deliberately web-only app instead of a compromise between two.</p>
+      <p>Ritual started as an app for both phone and web. Once I saw people just wanted to open a link, I removed all the phone-only code. What was left was one simple web app.</p>
     </div>
 
     <div class="challenge">
       <span class="challenge-num mono">02</span>
       <h3>A deployment that took three tries</h3>
-      <p>Shipping the backend to Render turned into a chain of failures, each one hiding the next behind it. The build kept exiting with no useful log, until the real one showed up: <code>NODE_ENV=production</code> was quietly telling <code>npm install</code> to skip devDependencies, including TypeScript itself, before <code>tsc</code> ever got to run. Once that was fixed, the next failure was a crash loop against <code>127.0.0.1:27017</code>, a hardcoded local-Mongo fallback still sitting in the config, standing in for a real MongoDB Atlas connection string that had never actually been set.</p>
-      <div class="beat">A <code>node_modules</code> folder had also ended up committed to git somewhere along the way, carrying macOS-only native binaries onto a Linux build server. Caught and removed before it could cause a fourth failure.</div>
+      <p>Putting the backend online failed a few times before it worked. First, a setting was silently deleting a tool the app needed just to build. Then the app kept crashing because it was trying to reach a database that was never actually set up. Both got fixed, one at a time.</p>
     </div>
 
     <div class="challenge">
       <span class="challenge-num mono">03</span>
       <h3>A demo account that never goes stale</h3>
-      <p>The live app needed a way for an interviewer to see three months of real usage without anyone actually using it for three months. My answer was a demo account that regenerates its own history (three groups, realistic check-in patterns, chat) once per calendar day, so the trailing window is always "the last 90 days" relative to whenever someone opens the link, instead of a frozen date range that slowly goes stale.</p>
-      <p>Since it runs against the same production database as real users, the regeneration only ever touches an ID list it derives fresh on every call, never a blanket delete. A single atomic <code>findOneAndUpdate</code> claim makes sure two visitors logging in at the same moment can't trigger the rebuild twice. Write-guards stop the shared account from creating or joining real groups, and a rate cap limits what a public, unmoderated chat thread can do.</p>
+      <p>I wanted anyone to open the app and see three months of real use, without waiting three months. So I built a demo account that quietly rebuilds its own history every day, always showing "the last 90 days," no matter when you open it.</p>
+      <div class="beat">It's also carefully boxed in: it can only touch its own data, never a real user's, and it can't create or join real groups.</div>
     </div>
   </section>
 
   <section id="outcome">
     <div class="section-label"><span class="eyebrow">Outcome</span><span class="rule"></span></div>
     <h2>What's live today</h2>
-    <p>Ritual runs end to end on free-tier infrastructure: Flutter web on Firebase Hosting, an Express and TypeScript API on Render, MongoDB Atlas for the database, real-time sync over Socket.IO. The demo account lets anyone see it exactly as it would look after months of real use.</p>
+    <p>Ritual runs on free hosting: Flutter for the app, Node.js for the backend, MongoDB for the database, and Socket.IO for real-time updates. The demo account lets anyone see it exactly as it would look after months of real use.</p>
     <div class="outcome-grid">
-      <div class="outcome-card"><div class="num">3</div><div class="desc">demo groups covering the pair, the squad, and the solo shapes of the product</div></div>
-      <div class="outcome-card"><div class="num">~90</div><div class="desc">days of check-in history regenerated fresh, every day, relative to today</div></div>
-      <div class="outcome-card"><div class="num">0</div><div class="desc">recomputed business logic in the client. Every number on screen comes from the server</div></div>
+      <div class="outcome-card"><div class="num">3</div><div class="desc">demo groups: a pair, a small group, and a solo user</div></div>
+      <div class="outcome-card"><div class="num">~90</div><div class="desc">days of history, rebuilt fresh every day</div></div>
+      <div class="outcome-card"><div class="num">0</div><div class="desc">numbers calculated in the app. Everything comes from the server</div></div>
     </div>
   </section>
 </main>
